@@ -1,0 +1,28 @@
+PDE type for problem: NoninearPossion
+
+Equation name for problem: PDE4
+
+The dimension of problem: 1
+
+Network model of solving problem: Net_3Hidden_2FF
+
+Activate function for NN-input: fourier_base
+
+Activate function for NN-hidden: sin
+
+Activate function for NN-output: linear
+
+hidden layer:[10, 20]
+
+hidden layer:[10, 20, 10]
+
+Mode to update the parameters of neural network: Hamilton
+
+Mode to generate the training data: equidistance
+
+Noise level to interfere the train data: 0.2
+
+activate the stop_step and given_step= 20000
+
+Expected validation log probability:: -3381.4951171875
+
