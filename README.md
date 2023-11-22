@@ -1,1 +1,1 @@
-# Multiscale Bayesian PINN to identify a class of PDE with multiple scale onformation from sparse observations
+# Multiscale Bayesian PINN to identify a class of PDE with multiple scale information from sparse observations
