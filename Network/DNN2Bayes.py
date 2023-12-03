@@ -270,7 +270,7 @@ class Net_2Hidden_2FF(tn.Module):
         H1 = self.l2(HFF1)          # Activation function is sin or tanh
         H1 = self.actFunc(H1)
 
-        Hin_FF2 = self.FF_layer1(x)  # Fourier
+        Hin_FF2 = self.FF_layer2(x)  # Fourier
         HFF2 = torch.cat([torch.cos(Hin_FF2), torch.sin(Hin_FF2)], dim=-1)
         H2 = self.l2(HFF2)  # Activation function is sin or tanh
         H2 = self.actFunc(H2)
@@ -329,7 +329,7 @@ class Net_3Hidden_2FF(tn.Module):
         H1 = self.l3(H1)
         H1 = self.actFunc(H1)
 
-        Hin_FF2 = self.FF_layer1(x)  # Fourier
+        Hin_FF2 = self.FF_layer2(x)  # Fourier
         HFF2 = torch.cat([torch.cos(Hin_FF2), torch.sin(Hin_FF2)], dim=-1)
         H2 = self.l2(HFF2)  # Activation function is sin or tanh
         H2 = self.actFunc(H2)
@@ -337,6 +337,147 @@ class Net_3Hidden_2FF(tn.Module):
         H2 = self.actFunc(H2)
 
         H_concat = torch.cat([H1, H2], dim=-1)
+
+        H = self.l4(H_concat)  # Activation function is sin or tanh
+        H = self.actFunc_out(H)
+        return H
+
+
+class Net_2Hidden_3FF(tn.Module):
+    def __init__(self, indim=1, outdim=1, hidden_layer=None, actName2in='tanh', actName='tanh', actName2out='linear',
+                 sigma1=1.0, sigma2=5.0, sigma3=5.0, trainable2ff=False, type2float='float32', to_gpu=False, gpu_no=0):
+        super(Net_2Hidden_3FF, self).__init__()
+        self.layer_sizes = hidden_layer
+        self.layer_list = []
+
+        if type2float == 'float32':
+            self.float_type = torch.float32
+        elif type2float == 'float64':
+            self.float_type = torch.float64
+        elif type2float == 'float16':
+            self.float_type = torch.float16
+
+        if to_gpu:
+            self.opt2device = 'cuda:' + str(gpu_no)
+        else:
+            self.opt2device = 'cpu'
+
+        self.actFunc_in = my_actFunc(actName=actName2in)
+        self.actFunc = my_actFunc(actName=actName)
+        self.actFunc_out = my_actFunc(actName=actName2out)
+
+        self.FF_layer1 = tn.Linear(indim, hidden_layer[0], bias=True)
+        tn.init.normal_(self.FF_layer1.weight, mean=0.0, std=1.0 * sigma1)
+        tn.init.uniform_(self.FF_layer1.bias, a=-1.0 * sigma1, b=1.0 * sigma1)
+        self.FF_layer1.weight.requires_grad = trainable2ff
+        self.FF_layer1.bias.requires_grad = trainable2ff
+
+        self.FF_layer2 = tn.Linear(indim, hidden_layer[0], bias=True)
+        tn.init.normal_(self.FF_layer2.weight, mean=0.0, std=1.0 * sigma2)
+        tn.init.uniform_(self.FF_layer2.bias, a=-1.0 * sigma2, b=1.0 * sigma2)
+        self.FF_layer2.weight.requires_grad = trainable2ff
+        self.FF_layer2.bias.requires_grad = trainable2ff
+
+        self.FF_layer3 = tn.Linear(indim, hidden_layer[0], bias=True)
+        tn.init.normal_(self.FF_layer3.weight, mean=0.0, std=1.0 * sigma3)
+        tn.init.uniform_(self.FF_layer3.bias, a=-1.0 * sigma3, b=1.0 * sigma3)
+        self.FF_layer3.weight.requires_grad = trainable2ff
+        self.FF_layer3.bias.requires_grad = trainable2ff
+
+        self.l2 = tn.Linear(2*hidden_layer[0], hidden_layer[1])
+        self.l3 = tn.Linear(3*hidden_layer[1], outdim)
+
+    def forward(self, x):
+        Hin_FF1 = self.FF_layer1(x)  # Fourier
+        HFF1 = torch.cat([torch.cos(Hin_FF1), torch.sin(Hin_FF1)], dim=-1)
+        H1 = self.l2(HFF1)          # Activation function is sin or tanh
+        H1 = self.actFunc(H1)
+
+        Hin_FF2 = self.FF_layer2(x)  # Fourier
+        HFF2 = torch.cat([torch.cos(Hin_FF2), torch.sin(Hin_FF2)], dim=-1)
+        H2 = self.l2(HFF2)  # Activation function is sin or tanh
+        H2 = self.actFunc(H2)
+
+        Hin_FF3 = self.FF_layer3(x)  # Fourier
+        HFF3 = torch.cat([torch.cos(Hin_FF3), torch.sin(Hin_FF3)], dim=-1)
+        H3 = self.l2(HFF3)  # Activation function is sin or tanh
+        H3 = self.actFunc(H3)
+
+        H_concat = torch.cat([H1, H2, H3], dim=-1)
+
+        H = self.l3(H_concat)            # Activation function is sin or tanh
+        H = self.actFunc_out(H)
+        return H
+
+
+class Net_3Hidden_3FF(tn.Module):
+    def __init__(self, indim=1, outdim=1, hidden_layer=None, actName2in='tanh', actName='tanh', actName2out='linear',
+                 sigma1=1.0, sigma2=5.0, sigma3=10.0, trainable2ff=False, type2float='float32', to_gpu=False, gpu_no=0):
+        super(Net_3Hidden_3FF, self).__init__()
+        self.layer_sizes = hidden_layer
+        self.layer_list = []
+
+        if type2float == 'float32':
+            self.float_type = torch.float32
+        elif type2float == 'float64':
+            self.float_type = torch.float64
+        elif type2float == 'float16':
+            self.float_type = torch.float16
+
+        if to_gpu:
+            self.opt2device = 'cuda:' + str(gpu_no)
+        else:
+            self.opt2device = 'cpu'
+
+        self.actFunc_in = my_actFunc(actName=actName2in)
+        self.actFunc = my_actFunc(actName=actName)
+        self.actFunc_out = my_actFunc(actName=actName2out)
+
+        self.FF_layer1 = tn.Linear(indim, hidden_layer[0], bias=True)
+        tn.init.normal_(self.FF_layer1.weight, mean=0.0, std=1.0 * sigma1)
+        tn.init.uniform_(self.FF_layer1.bias, a=-1.0 * sigma1, b=1.0 * sigma1)
+        self.FF_layer1.weight.requires_grad = trainable2ff
+        self.FF_layer1.bias.requires_grad = trainable2ff
+
+        self.FF_layer2 = tn.Linear(indim, hidden_layer[0], bias=True)
+        tn.init.normal_(self.FF_layer2.weight, mean=0.0, std=1.0 * sigma2)
+        tn.init.uniform_(self.FF_layer2.bias, a=-1.0 * sigma2, b=1.0 * sigma2)
+        self.FF_layer2.weight.requires_grad = trainable2ff
+        self.FF_layer2.bias.requires_grad = trainable2ff
+
+        self.FF_layer3 = tn.Linear(indim, hidden_layer[0], bias=True)
+        tn.init.normal_(self.FF_layer3.weight, mean=0.0, std=1.0 * sigma3)
+        tn.init.uniform_(self.FF_layer3.bias, a=-1.0 * sigma3, b=1.0 * sigma3)
+        self.FF_layer3.weight.requires_grad = trainable2ff
+        self.FF_layer3.bias.requires_grad = trainable2ff
+
+        self.l2 = tn.Linear(2*hidden_layer[0], hidden_layer[1])
+        self.l3 = tn.Linear(hidden_layer[1], hidden_layer[2])
+        self.l4 = tn.Linear(3*hidden_layer[2], outdim)
+
+    def forward(self, x):
+        Hin_FF1 = self.FF_layer1(x)  # Fourier
+        HFF1 = torch.cat([torch.cos(Hin_FF1), torch.sin(Hin_FF1)], dim=-1)
+        H1 = self.l2(HFF1)  # Activation function is sin or tanh
+        H1 = self.actFunc(H1)
+        H1 = self.l3(H1)
+        H1 = self.actFunc(H1)
+
+        Hin_FF2 = self.FF_layer2(x)  # Fourier
+        HFF2 = torch.cat([torch.cos(Hin_FF2), torch.sin(Hin_FF2)], dim=-1)
+        H2 = self.l2(HFF2)  # Activation function is sin or tanh
+        H2 = self.actFunc(H2)
+        H2 = self.l3(H2)  # Activation function is sin or tanh
+        H2 = self.actFunc(H2)
+
+        Hin_FF3 = self.FF_layer3(x)  # Fourier
+        HFF3 = torch.cat([torch.cos(Hin_FF3), torch.sin(Hin_FF3)], dim=-1)
+        H3 = self.l2(HFF3)  # Activation function is sin or tanh
+        H3 = self.actFunc(H3)
+        H3 = self.l3(H3)  # Activation function is sin or tanh
+        H3 = self.actFunc(H3)
+
+        H_concat = torch.cat([H1, H2, H3], dim=-1)
 
         H = self.l4(H_concat)  # Activation function is sin or tanh
         H = self.actFunc_out(H)
