@@ -13,6 +13,31 @@ def load_Matlab_data(filename=None):
     return data
 
 
+def get_meshData2Bayes(dim=2, data_path=None, mesh_number=5, to_torch=False, to_float=True, to_cuda=False,
+                       gpu_no=0, use_grad2x=False):
+    file2mesh_XY = data_path + str('meshXY') + str(mesh_number) + str('.mat')
+    mesh_points = load_Matlab_data(file2mesh_XY)
+    XY_points = mesh_points['meshXY']
+    shape2XY = np.shape(XY_points)
+    assert (len(shape2XY) == 2)
+    if shape2XY[0] == 2:
+        xy_data = np.transpose(XY_points, (1, 0))
+    else:
+        xy_data = XY_points
+
+    if to_float:
+        xy_data = xy_data.astype(np.float32)
+
+    if to_torch:
+        xy_data = torch.from_numpy(xy_data)
+
+        if to_cuda:
+            xy_data = xy_data.cuda(device='cuda:' + str(gpu_no))
+
+        xy_data.requires_grad = use_grad2x
+    return xy_data
+
+
 def get_randomData2mat(dim=2, data_path=None, to_torch=False, to_float=True, to_cuda=False, gpu_no=0, use_grad2x=False):
     if dim == 2:
         file_name2data = str(data_path) + '/' + str('testXY') + str('.mat')

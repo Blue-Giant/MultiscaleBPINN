@@ -674,7 +674,7 @@ def plot_Hot_solution2test(solu2test, size_vec2mat=20, actName=None, seedNo=1000
     DNN_tools.mySaveFig(plt, fntmp, ax=ax, isax=1, iseps=0)
 
 
-def plot_scatter_solution2test(solu2test, test_batch, actName=None, seedNo=1000, outPath=None):
+def plot_scatter_solution2test(solu2test, test_batch, name2solu=None, outPath=None):
     dim2test_batch = 2
     if 2 == dim2test_batch:
         test_x_bach = np.reshape(test_batch[:, 0], newshape=[-1, 1])
@@ -683,7 +683,7 @@ def plot_scatter_solution2test(solu2test, test_batch, actName=None, seedNo=1000,
         # 绘制解的3D散点图
         fig = plt.figure(figsize=(10, 10))
         ax = Axes3D(fig)
-        ax.scatter(test_x_bach, test_y_bach, solu2test, c='b', label=actName)
+        ax.scatter(test_x_bach, test_y_bach, solu2test, c='b', label=name2solu)
 
         # 绘制图例
         ax.legend(loc='best')
@@ -693,7 +693,7 @@ def plot_scatter_solution2test(solu2test, test_batch, actName=None, seedNo=1000,
         ax.set_zlabel('u', fontdict={'size': 15, 'color': 'red'})
 
         # plt.title('solution', fontsize=15)
-        fntmp = '%s/%ssolu' % (outPath, seedNo)
+        fntmp = '%s/solu2%s' % (outPath, name2solu)
         DNN_tools.mySaveFig(plt, fntmp, ax=ax, isax=1, iseps=0)
     else:
         return

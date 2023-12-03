@@ -32,5 +32,14 @@ def dictionary_out2file(R_dic, log_fileout):
 
 
 def print_log_validation(log_probability, log_out=None):
-    print("\n Expected validation log probability: {:.3f}".format(log_probability))
-    DNN_tools.log_string('Expected validation log probability:: %s\n' % str(log_probability.item()), log_out)
+    print(" Expected validation log probability: {:.3f}".format(log_probability))
+    DNN_tools.log_string('Expected validation log probability:: %s\n\n' % str(log_probability.item()), log_out)
+
+
+def print_log_errors(mse2test=0.01, rel2test=0.01, log_out=None):
+    # 将运行结果打印出来
+    print('mean square error of predict and real for testing: %.10f\n' % mse2test)
+    print('relative error of predict and real for testing: %.10f\n' % rel2test)
+
+    DNN_tools.log_string('mean square error of predict and real for testing: %.10f' % mse2test, log_out)
+    DNN_tools.log_string('relative error of predict and real for testing: %.10f\n\n' % rel2test, log_out)

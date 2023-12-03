@@ -80,3 +80,24 @@ def plot2f(x_val=None, f_val=None, pred_list_f=None, x_f=None, y_f=None, lb=None
 
     fntmp = '%s/%s' % (outPath, dataType)
     DNN_tools.mySaveFig(plt, fntmp, ax=ax, isax=1, iseps=0)
+
+
+def plot_scatter_solution2test(solu2test, test_xy=None, name2solu=None, outPath=None):
+    test_x_bach = np.reshape(test_xy[:, 0], newshape=[-1, 1])
+    test_y_bach = np.reshape(test_xy[:, 1], newshape=[-1, 1])
+
+    # 绘制解的3D散点图
+    fig = plt.figure(figsize=(10, 10))
+    ax = Axes3D(fig)
+    ax.scatter(test_x_bach, test_y_bach, solu2test, c='b', label=name2solu)
+
+    # 绘制图例
+    ax.legend(loc='best')
+    # 添加坐标轴(顺序是X，Y, Z)
+    ax.set_xlabel('X', fontdict={'size': 15, 'color': 'red'})
+    ax.set_ylabel('Y', fontdict={'size': 15, 'color': 'red'})
+    ax.set_zlabel('U', fontdict={'size': 15, 'color': 'red'})
+
+    # plt.title('solution', fontsize=15)
+    fntmp = '%s/solu2%s' % (outPath, name2solu)
+    DNN_tools.mySaveFig(plt, fntmp, ax=ax, isax=1, iseps=0)
