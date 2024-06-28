@@ -62,6 +62,8 @@ class my_actFunc(tn.Module):
             out_x = x_input*torch.cos(x_input)
         elif str.lower(self.actName) == 'mish':
             out_x = tnf.mish(x_input)
+        elif str.lower(self.actName) == 'silu':
+            out_x = tnf.silu(x_input)
         elif str.lower(self.actName) == 'gauss':
             out_x = torch.exp(-1.0 * x_input * x_input)
             # out_x = torch.exp(-0.5 * x_input * x_input)

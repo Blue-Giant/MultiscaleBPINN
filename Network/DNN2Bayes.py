@@ -1,71 +1,23 @@
 import torch
 import torch.nn as tn
 import torch.nn as nn
-import torch.nn.functional as tnf
+from Network import ActFUnc_Module
 import numpy as np
-
-
-class my_actFunc(tn.Module):
-    def __init__(self, actName='linear'):
-        super(my_actFunc, self).__init__()
-        self.actName = actName
-
-    def forward(self, x_input):
-        if str.lower(self.actName) == 'relu':
-            out_x = tnf.relu(x_input)
-        elif str.lower(self.actName) == 'leaky_relu':
-            out_x = tnf.leaky_relu(x_input)
-        elif str.lower(self.actName) == 'tanh':
-            out_x = torch.tanh(x_input)
-        elif str.lower(self.actName) == 'enhance_tanh' or str.lower(self.actName) == 'enh_tanh':  # Enhance Tanh
-            out_x = torch.tanh(0.5*torch.pi*x_input)
-        elif str.lower(self.actName) == 'srelu':
-            out_x = tnf.relu(x_input)*tnf.relu(1-x_input)
-        elif str.lower(self.actName) == 's2relu':
-            out_x = tnf.relu(x_input)*tnf.relu(1-x_input)*torch.sin(2*np.pi*x_input)
-        elif str.lower(self.actName) == 'elu':
-            out_x = tnf.elu(x_input)
-        elif str.lower(self.actName) == 'sin':
-            out_x = torch.sin(x_input)
-        elif str.lower(self.actName) == 'sinaddcos':
-            out_x = 0.5*torch.sin(x_input) + 0.5*torch.cos(x_input)
-            # out_x = 0.75*torch.sin(x_input) + 0.75*torch.cos(x_input)
-            # out_x = torch.sin(x_input) + torch.cos(x_input)
-        elif str.lower(self.actName) == 'fourier':
-            out_x = torch.cat([torch.sin(x_input), torch.cos(x_input)], dim=-1)
-        elif str.lower(self.actName) == 'sigmoid':
-            out_x = tnf.sigmoid(x_input)
-        elif str.lower(self.actName) == 'gelu':
-            out_x = tnf.gelu(x_input)
-        elif str.lower(self.actName) == 'gcu':
-            out_x = x_input*torch.cos(x_input)
-        elif str.lower(self.actName) == 'mish':
-            out_x = tnf.mish(x_input)
-        elif str.lower(self.actName) == 'gauss':
-            out_x = torch.exp(-1.0 * x_input * x_input)
-            # out_x = torch.exp(-0.5 * x_input * x_input)
-        elif str.lower(self.actName) == 'requ':
-            out_x = tnf.relu(x_input)*tnf.relu(x_input)
-        elif str.lower(self.actName) == 'recu':
-            out_x = tnf.relu(x_input)*tnf.relu(x_input)*tnf.relu(x_input)
-        elif str.lower(self.actName) == 'morlet':
-            out_x = torch.cos(1.75*x_input)*torch.exp(-0.5*x_input*x_input)
-            # out_x = torch.cos(1.75 * x_input) * torch.exp(-1.0 * x_input * x_input)
-        else:
-            out_x = x_input
-        return out_x
 
 
 # This model is the original model from the codes of # B-PINNs (Bayesian Physics-Informed Neural Networks)
 # This is the pytorch implementation of B-PINNs with Hamiltonian monte carlo algorithm.
 # B-PINN에 관한 설명은 제 [블로그](https://www.notion.so/Physics-informed-neural-network-ee8cd5fa9ca243bfa5d7ce8d75370788) 에 있습니다.
 class Net_2Hidden(nn.Module):
-    def __init__(self, layer_sizes, activation=torch.tanh, sigma=5.0, trainable2sigma=False, type2float='float32',
-                 to_gpu=False, gpu_no=0):
+    def __init__(self, indim=1, outdim=1, hidden_layer=None, actName2in='tanh', actName='tanh', actName2out='linear',
+                 type2float='float32', to_gpu=False, gpu_no=0, init_W_B=False):
         super(Net_2Hidden, self).__init__()
-        self.layer_sizes = layer_sizes
+        self.layer_sizes = hidden_layer
         self.layer_list = []
-        self.activation = activation
+
+        self.actFunc_in = ActFUnc_Module.my_actFunc(actName=actName2in)
+        self.actFunc = ActFUnc_Module.my_actFunc(actName=actName)
+        self.actFunc_out = ActFUnc_Module.my_actFunc(actName=actName2out)
 
         if type2float == 'float32':
             self.float_type = torch.float32
@@ -79,38 +31,48 @@ class Net_2Hidden(nn.Module):
         else:
             self.opt2device = 'cpu'
 
-        self.FF_layer = nn.Linear(layer_sizes[0], layer_sizes[1], dtype=self.float_type, device=self.opt2device)
-        tn.init.normal_(self.FF_layer.weight, mean=0.0, std=1.0 * sigma)
-        tn.init.uniform_(self.FF_layer.bias, a=-1.0, b=1.0)
-        self.FF_layer.weight.requires_grad = trainable2sigma
+        self.input_layer = nn.Linear(indim, hidden_layer[0], dtype=self.float_type, device=self.opt2device)
+        self.hidden1 = nn.Linear(hidden_layer[0], hidden_layer[1], dtype=self.float_type, device=self.opt2device)
+        self.output_layer = nn.Linear(hidden_layer[1], outdim, dtype=self.float_type, device=self.opt2device)
+        # if init_W_B:
+        #     tn.init.xavier_normal_(self.input_layer.weight)
+        #     tn.init.uniform_(self.input_layer.bias, a=-1.0, b=1.0)
+        #
+        #     tn.init.xavier_normal_(self.hidden1.weight)
+        #     tn.init.uniform_(self.hidden1.bias, a=-1.0, b=1.0)
+        #
+        #     tn.init.xavier_normal_(self.output_layer.weight)
+        #     tn.init.uniform_(self.output_layer.bias, a=-1.0, b=1.0)
 
-        self.l2 = nn.Linear(2*layer_sizes[1], layer_sizes[2], dtype=self.float_type, device=self.opt2device)
-        tn.init.normal_(self.l2.weight, mean=0.0, std=1.0 * sigma)
-        tn.init.uniform_(self.l2.bias, a=-1.0, b=1.0)
+        tn.init.xavier_normal_(self.input_layer.weight)
+        tn.init.uniform_(self.input_layer.bias, a=-1.0, b=1.0)
 
-        self.l3 = nn.Linear(layer_sizes[2], layer_sizes[3], dtype=self.float_type, device=self.opt2device)
-        tn.init.normal_(self.l3.weight, mean=0.0, std=1.0 * sigma)
-        tn.init.uniform_(self.l3.bias, a=-1.0, b=1.0)
-        # self.l4 = nn.Linear(layer_sizes[3], layer_sizes[4])
+        tn.init.xavier_normal_(self.hidden1.weight)
+        tn.init.uniform_(self.hidden1.bias, a=-1.0, b=1.0)
+
+        tn.init.xavier_normal_(self.output_layer.weight)
+        tn.init.uniform_(self.output_layer.bias, a=-1.0, b=1.0)
 
     def forward(self, x):
-        H_FF = self.FF_layer(x)  # Fourier
-        H = torch.cat([torch.cos(H_FF), torch.sin(H_FF)], dim=-1)
-        x = self.l2(H)  # Activation function is sin or tanh
-        x = self.activation(x)
-        x = self.l3(x)  # Activation function is sin or tanh
-        # x = self.activation(x)
-        # x = self.l4(x)   # Activation function is linear
-        return x
+        H_in = self.input_layer(x)
+        H = self.actFunc_in(H_in)
+        H = self.hidden1(H)  # Activation function is sin or tanh
+        H = self.actFunc(H)
+        H = self.output_layer(H)  # Activation function is sin or tanh
+        H = self.actFunc_out(H)
+        return H
 
 
 class Net_3Hidden(nn.Module):
-    def __init__(self, layer_sizes, activation=torch.tanh, sigma=5.0, trainable2sigma=False, type2float='float32',
-                 to_gpu=False, gpu_no=0):
+    def __init__(self, indim=1, outdim=1, hidden_layer=None, actName2in='tanh', actName='tanh', actName2out='linear',
+                 type2float='float32', to_gpu=False, gpu_no=0, init_W_B=False):
         super(Net_3Hidden, self).__init__()
-        self.layer_sizes = layer_sizes
+        self.layer_sizes = hidden_layer
         self.layer_list = []
-        self.activation = activation
+
+        self.actFunc_in = ActFUnc_Module.my_actFunc(actName=actName2in)
+        self.actFunc = ActFUnc_Module.my_actFunc(actName=actName)
+        self.actFunc_out = ActFUnc_Module.my_actFunc(actName=actName2out)
 
         if type2float == 'float32':
             self.float_type = torch.float32
@@ -124,37 +86,196 @@ class Net_3Hidden(nn.Module):
         else:
             self.opt2device = 'cpu'
 
-        self.FF_layer = nn.Linear(layer_sizes[0], layer_sizes[1], dtype=self.float_type, device=self.opt2device)
-        tn.init.normal_(self.FF_layer.weight, mean=0.0, std=1.0 * sigma)
-        tn.init.uniform_(self.FF_layer.bias, a=-1.0, b=1.0)
-        self.FF_layer.weight.requires_grad = trainable2sigma
+        self.input_layer = nn.Linear(indim, hidden_layer[0], dtype=self.float_type, device=self.opt2device)
+        self.hidden1 = nn.Linear(hidden_layer[0], hidden_layer[1], dtype=self.float_type, device=self.opt2device)
+        self.hidden2 = nn.Linear(hidden_layer[1], hidden_layer[2], dtype=self.float_type, device=self.opt2device)
+        self.output_layer = nn.Linear(hidden_layer[2], outdim, dtype=self.float_type, device=self.opt2device)
 
-        self.l2 = nn.Linear(2 * layer_sizes[1], layer_sizes[2], dtype=self.float_type, device=self.opt2device)
-        tn.init.normal_(self.l2.weight, mean=0.0, std=1.0)
-        tn.init.uniform_(self.l2.bias, a=-1.0, b=1.0)
+        # if init_W_B:
+        #     tn.init.xavier_normal_(self.input_layer.weight)
+        #     tn.init.uniform_(self.input_layer.bias, a=-1.0, b=1.0)
+        #
+        #     tn.init.xavier_normal_(self.hidden1.weight)
+        #     tn.init.uniform_(self.hidden1.bias, a=-1.0, b=1.0)
+        #
+        #     tn.init.xavier_normal_(self.hidden2.weight)
+        #     tn.init.uniform_(self.hidden2.bias, a=-1.0, b=1.0)
+        #
+        #     tn.init.xavier_normal_(self.output_layer.weight)
+        #     tn.init.uniform_(self.output_layer.bias, a=-1.0, b=1.0)
 
-        self.l3 = nn.Linear(layer_sizes[2], layer_sizes[3], dtype=self.float_type, device=self.opt2device)
-        tn.init.normal_(self.l3.weight, mean=0.0, std=1.0)
-        tn.init.uniform_(self.l3.bias, a=-1.0, b=1.0)
-
-        self.l4 = nn.Linear(layer_sizes[3], layer_sizes[4])
-        tn.init.normal_(self.l4.weight, mean=0.0, std=1.0)
-        tn.init.uniform_(self.l4.bias, a=-1.0, b=1.0)
+        # tn.init.xavier_normal_(self.input_layer.weight)
+        # tn.init.uniform_(self.input_layer.bias, a=-1.0, b=1.0)
+        #
+        # tn.init.xavier_normal_(self.hidden1.weight)
+        # tn.init.uniform_(self.hidden1.bias, a=-1.0, b=1.0)
+        #
+        # tn.init.xavier_normal_(self.hidden2.weight)
+        # tn.init.uniform_(self.hidden2.bias, a=-1.0, b=1.0)
+        #
+        # tn.init.xavier_normal_(self.output_layer.weight)
+        # tn.init.uniform_(self.output_layer.bias, a=-1.0, b=1.0)
 
     def forward(self, x):
-        H_FF = self.FF_layer(x)  # Fourier
+        H_in = self.input_layer(x)
+        H = self.actFunc_in(H_in)
+        H = self.hidden1(H)  # Activation function is sin or tanh
+        H = self.actFunc(H)
+        H = self.hidden2(H)  # Activation function is sin or tanh
+        H = self.actFunc(H)
+        H = self.output_layer(H)  # Activation function is sin or tanh
+        H = self.actFunc_out(H)
+        return H
+
+
+class Net_4Hidden(nn.Module):
+    def __init__(self, indim=1, outdim=1, hidden_layer=None, actName2in='tanh', actName='tanh', actName2out='linear',
+                 type2float='float32', to_gpu=False, gpu_no=0, init_W_B=False):
+        super(Net_4Hidden, self).__init__()
+        self.layer_sizes = hidden_layer
+        self.layer_list = []
+
+        self.actFunc_in = ActFUnc_Module.my_actFunc(actName=actName2in)
+        self.actFunc = ActFUnc_Module.my_actFunc(actName=actName)
+        self.actFunc_out = ActFUnc_Module.my_actFunc(actName=actName2out)
+
+        if type2float == 'float32':
+            self.float_type = torch.float32
+        elif type2float == 'float64':
+            self.float_type = torch.float64
+        elif type2float == 'float16':
+            self.float_type = torch.float16
+
+        if to_gpu:
+            self.opt2device = 'cuda:' + str(gpu_no)
+        else:
+            self.opt2device = 'cpu'
+
+        self.input_layer = nn.Linear(indim, hidden_layer[0], dtype=self.float_type, device=self.opt2device)
+        self.hidden1 = nn.Linear(hidden_layer[0], hidden_layer[1], dtype=self.float_type, device=self.opt2device)
+        self.hidden2 = nn.Linear(hidden_layer[1], hidden_layer[2], dtype=self.float_type, device=self.opt2device)
+        self.hidden3 = nn.Linear(hidden_layer[2], hidden_layer[3], dtype=self.float_type, device=self.opt2device)
+        self.output_layer = nn.Linear(hidden_layer[3], outdim, dtype=self.float_type, device=self.opt2device)
+
+        # if init_W_B:
+        #     tn.init.xavier_normal_(self.input_layer.weight)
+        #     tn.init.uniform_(self.input_layer.bias, a=-1.0, b=1.0)
+        #
+        #     tn.init.xavier_normal_(self.hidden1.weight)
+        #     tn.init.uniform_(self.hidden1.bias, a=-1.0, b=1.0)
+        #
+        #     tn.init.xavier_normal_(self.hidden2.weight)
+        #     tn.init.uniform_(self.hidden2.bias, a=-1.0, b=1.0)
+        #
+        #     tn.init.xavier_normal_(self.hidde3.weight)
+        #     tn.init.uniform_(self.hidden3.bias, a=-1.0, b=1.0)
+        #
+        #     tn.init.xavier_normal_(self.output_layer.weight)
+        #     tn.init.uniform_(self.output_layer.bias, a=-1.0, b=1.0)
+
+    def forward(self, x):
+        H_in = self.input_layer(x)
+        H = self.actFunc_in(H_in)
+        H = self.hidden1(H)  # Activation function is sin or tanh
+        H = self.actFunc(H)
+        H = self.hidden2(H)  # Activation function is sin or tanh
+        H = self.actFunc(H)
+        H = self.hidden3(H)  # Activation function is sin or tanh
+        H = self.actFunc(H)
+        H = self.output_layer(H)  # Activation function is sin or tanh
+        H = self.actFunc_out(H)
+        return H
+
+
+class Net_2Hidden_FourierBasis(tn.Module):
+    def __init__(self, indim=1, outdim=1, hidden_layer=None, actName2in='tanh', actName='tanh', actName2out='linear',
+                 type2float='float32', to_gpu=False, gpu_no=0):
+        super(Net_2Hidden_FourierBasis, self).__init__()
+        self.indim = indim
+        self.outdim = outdim
+        self.hidden_units = hidden_layer
+
+        self.to_gpu = to_gpu
+        self.gpu_no = gpu_no
+
+        if type2float == 'float32':
+            self.float_type = torch.float32
+        elif type2float == 'float64':
+            self.float_type = torch.float64
+        elif type2float == 'float16':
+            self.float_type = torch.float16
+
+        if to_gpu:
+            self.opt2device = 'cuda:' + str(gpu_no)
+        else:
+            self.opt2device = 'cpu'
+
+        self.actFunc_in = ActFUnc_Module.my_actFunc(actName=actName2in)
+        self.actFunc = ActFUnc_Module.my_actFunc(actName=actName)
+        self.actFunc_out = ActFUnc_Module.my_actFunc(actName=actName2out)
+
+        self.Fourier_layer = tn.Linear(indim, hidden_layer[0])
+        self.l2 = tn.Linear(2*hidden_layer[0], hidden_layer[1])
+        self.lout = tn.Linear(hidden_layer[1], outdim)
+
+    def forward(self, x):
+        H_FF = self.Fourier_layer(x)
         H = torch.cat([torch.cos(H_FF), torch.sin(H_FF)], dim=-1)
         x = self.l2(H)  # Activation function is sin or tanh
-        x = self.activation(x)
+        x = self.actFunc(x)
+        x = self.lout(x)  # Activation function is sin or tanh
+        x = self.actFunc_out(x)
+        return x
+
+
+class Net_3Hidden_FourierBasis(tn.Module):
+    def __init__(self, indim=1, outdim=1, hidden_layer=None, actName2in='tanh', actName='tanh', actName2out='linear',
+                type2float='float32', to_gpu=False, gpu_no=0):
+        super(Net_3Hidden_FourierBasis, self).__init__()
+        self.indim = indim
+        self.outdim = outdim
+        self.hidden_units = hidden_layer
+
+        self.to_gpu = to_gpu
+        self.gpu_no = gpu_no
+
+        if type2float == 'float32':
+            self.float_type = torch.float32
+        elif type2float == 'float64':
+            self.float_type = torch.float64
+        elif type2float == 'float16':
+            self.float_type = torch.float16
+
+        if to_gpu:
+            self.opt2device = 'cuda:' + str(gpu_no)
+        else:
+            self.opt2device = 'cpu'
+
+        self.actFunc_in = ActFUnc_Module.my_actFunc(actName=actName2in)
+        self.actFunc = ActFUnc_Module.my_actFunc(actName=actName)
+        self.actFunc_out = ActFUnc_Module.my_actFunc(actName=actName2out)
+
+        self.Fourier_layer = tn.Linear(indim, hidden_layer[0])
+        self.l2 = tn.Linear(2*hidden_layer[0], hidden_layer[1])
+        self.l3 = tn.Linear(hidden_layer[1], hidden_layer[2])
+        self.l4 = tn.Linear(hidden_layer[2], outdim)
+
+    def forward(self, x):
+        H_FF = self.Fourier_layer(x)
+        H = torch.cat([torch.cos(H_FF), torch.sin(H_FF)], dim=-1)
+
+        x = self.l2(H)  # Activation function is sin or tanh
+        x = self.actFunc(x)
         x = self.l3(x)  # Activation function is sin or tanh
-        x = self.activation(x)
-        x = self.l4(x)   # Activation function is linear
+        x = self.actFunc(x)
+        x = self.l4(x)
+        x = self.actFunc_out(x)
         return x
 
 
 class Net_2Hidden_FF(tn.Module):
     def __init__(self, indim=1, outdim=1, hidden_layer=None, actName2in='tanh', actName='tanh', actName2out='linear',
-                 sigma=5.0, trainable2ff=False, type2float='float32', to_gpu=False, gpu_no=0):
+                 sigma=5.0, trainable2ff=False, type2float='float32', to_gpu=False, gpu_no=0, init_W_B=False):
         super(Net_2Hidden_FF, self).__init__()
         self.layer_sizes = hidden_layer
         self.layer_list = []
@@ -171,9 +292,57 @@ class Net_2Hidden_FF(tn.Module):
         else:
             self.opt2device = 'cpu'
 
-        self.actFunc_in = my_actFunc(actName=actName2in)
-        self.actFunc = my_actFunc(actName=actName)
-        self.actFunc_out = my_actFunc(actName=actName2out)
+        self.actFunc_in = ActFUnc_Module.my_actFunc(actName=actName2in)
+        self.actFunc = ActFUnc_Module.my_actFunc(actName=actName)
+        self.actFunc_out = ActFUnc_Module.my_actFunc(actName=actName2out)
+
+        self.FF_layer = tn.Linear(indim, hidden_layer[0], bias=True, dtype=self.float_type, device=self.opt2device)
+        tn.init.normal_(self.FF_layer.weight, mean=0.0, std=1.0 * sigma)
+        # tn.init.uniform_(self.FF_layer.bias, a=-1.0 * sigma, b=1.0 * sigma)
+        self.FF_layer.weight.requires_grad = trainable2ff
+        self.FF_layer.bias.requires_grad = trainable2ff
+
+        self.lh1 = tn.Linear(2*hidden_layer[0], hidden_layer[1], dtype=self.float_type, device=self.opt2device)
+        self.lout = tn.Linear(hidden_layer[1], outdim, dtype=self.float_type, device=self.opt2device)
+
+        if init_W_B:
+            tn.init.normal_(self.lh1.weight)
+            tn.init.uniform_(self.lh1.bias, a=-1.0, b=1.0)
+
+            tn.init.normal_(self.lout.weight)
+            tn.init.uniform_(self.lout.bias, a=-1.0, b=1.0)
+
+    def forward(self, x):
+        Hin_FF = self.FF_layer(x)  # Fourier
+        HFF = torch.cat([torch.cos(Hin_FF), torch.sin(Hin_FF)], dim=-1)
+        H = self.lh1(HFF)          # Activation function is sin or tanh
+        H = self.actFunc(H)
+        H = self.lout(H)            # Activation function is sin or tanh
+        H = self.actFunc_out(H)
+        return H
+
+
+class Net_3Hidden_FF(tn.Module):
+    def __init__(self, indim=1, outdim=1, hidden_layer=None, actName2in='tanh', actName='tanh', actName2out='linear',
+                 sigma=5.0, trainable2ff=False, type2float='float32', to_gpu=False, gpu_no=0, init_W_B=False):
+        super(Net_3Hidden_FF, self).__init__()
+        if type2float == 'float32':
+            self.float_type = torch.float32
+        elif type2float == 'float64':
+            self.float_type = torch.float64
+        elif type2float == 'float16':
+            self.float_type = torch.float16
+
+        if to_gpu:
+            self.opt2device = 'cuda:' + str(gpu_no)
+        else:
+            self.opt2device = 'cpu'
+
+        self.layer_sizes = hidden_layer
+        self.layer_list = []
+        self.actFunc_in = ActFUnc_Module.my_actFunc(actName=actName2in)
+        self.actFunc = ActFUnc_Module.my_actFunc(actName=actName)
+        self.actFunc_out = ActFUnc_Module.my_actFunc(actName=actName2out)
 
         self.FF_layer = tn.Linear(indim, hidden_layer[0], bias=True, dtype=self.float_type, device=self.opt2device)
         tn.init.normal_(self.FF_layer.weight, mean=0.0, std=1.0 * sigma)
@@ -181,54 +350,36 @@ class Net_2Hidden_FF(tn.Module):
         self.FF_layer.weight.requires_grad = trainable2ff
         self.FF_layer.bias.requires_grad = trainable2ff
 
-        self.l2 = tn.Linear(2*hidden_layer[0], hidden_layer[1], dtype=self.float_type, device=self.opt2device)
-        self.l3 = tn.Linear(hidden_layer[1], outdim, dtype=self.float_type, device=self.opt2device)
+        self.lh1 = tn.Linear(2*hidden_layer[0], hidden_layer[1])
+        self.lh2 = tn.Linear(hidden_layer[1], hidden_layer[2])
+        self.lout = tn.Linear(hidden_layer[2], outdim)
 
-    def forward(self, x):
-        Hin_FF = self.FF_layer(x)  # Fourier
-        HFF = torch.cat([torch.cos(Hin_FF), torch.sin(Hin_FF)], dim=-1)
-        H = self.l2(HFF)          # Activation function is sin or tanh
-        H = self.actFunc(H)
-        H = self.l3(H)            # Activation function is sin or tanh
-        H = self.actFunc_out(H)
-        return H
+        if init_W_B:
+            tn.init.normal_(self.lh1.weight)
+            tn.init.uniform_(self.lh1.bias, a=-1.0, b=1.0)
 
+            tn.init.normal_(self.lh2.weight)
+            tn.init.uniform_(self.lh2.bias, a=-1.0, b=1.0)
 
-class Net_3Hidden_FF(tn.Module):
-    def __init__(self, indim=1, outdim=1, hidden_layer=None, actName2in='tanh', actName='tanh', actName2out='linear',
-                 sigma=5.0, trainable2ff=False, type2float='float32', to_gpu=False, gpu_no=0):
-        super(Net_3Hidden_FF, self).__init__()
-        self.layer_sizes = hidden_layer
-        self.layer_list = []
-        self.actFunc_in = my_actFunc(actName=actName2in)
-        self.actFunc = my_actFunc(actName=actName)
-        self.actFunc_out = my_actFunc(actName=actName2out)
-
-        self.FF_layer = tn.Linear(indim, hidden_layer[0], bias=True)
-        tn.init.normal_(self.FF_layer.weight, mean=0.0, std=1.0 * sigma)
-        tn.init.uniform_(self.FF_layer.bias, a=-1.0 * sigma, b=1.0 * sigma)
-        self.FF_layer.weight.requires_grad = trainable2ff
-        self.FF_layer.bias.requires_grad = trainable2ff
-
-        self.l2 = tn.Linear(2*hidden_layer[0], hidden_layer[1])
-        self.l3 = tn.Linear(hidden_layer[1], hidden_layer[2])
-        self.l4 = tn.Linear(hidden_layer[2], outdim)
+            tn.init.normal_(self.lout.weight)
+            tn.init.uniform_(self.lout.bias, a=-1.0, b=1.0)
 
     def forward(self, x):
         Hin_FF = self.FF_layer(x)                                      # Fourier layer
         H = torch.cat([torch.cos(Hin_FF), torch.sin(Hin_FF)], dim=-1)  # Activation function is sin and cos
-        x = self.l2(H)                                                 # Activation function is sin or tanh
+        x = self.lh1(H)                                                 # Activation function is sin or tanh
         x = self.actFunc(x)
-        x = self.l3(x)                                                 # Activation function is sin or tanh
+        x = self.lh2(x)                                                 # Activation function is sin or tanh
         x = self.actFunc(x)
-        H = self.l4(x)                                                 # Activation function is sin or tanh
+        H = self.lout(x)                                                 # Activation function is sin or tanh
         H = self.actFunc_out(H)
         return H
 
 
 class Net_2Hidden_2FF(tn.Module):
     def __init__(self, indim=1, outdim=1, hidden_layer=None, actName2in='tanh', actName='tanh', actName2out='linear',
-                 sigma1=1.0, sigma2=5.0, trainable2ff=False, type2float='float32', to_gpu=False, gpu_no=0):
+                 sigma1=1.0, sigma2=5.0, trainable2ff=False, type2float='float32', to_gpu=False, gpu_no=0,
+                 init_W_B=False):
         super(Net_2Hidden_2FF, self).__init__()
         self.layer_sizes = hidden_layer
         self.layer_list = []
@@ -245,46 +396,54 @@ class Net_2Hidden_2FF(tn.Module):
         else:
             self.opt2device = 'cpu'
 
-        self.actFunc_in = my_actFunc(actName=actName2in)
-        self.actFunc = my_actFunc(actName=actName)
-        self.actFunc_out = my_actFunc(actName=actName2out)
+        self.actFunc_in = ActFUnc_Module.my_actFunc(actName=actName2in)
+        self.actFunc = ActFUnc_Module.my_actFunc(actName=actName)
+        self.actFunc_out = ActFUnc_Module.my_actFunc(actName=actName2out)
 
         self.FF_layer1 = tn.Linear(indim, hidden_layer[0], bias=True)
         tn.init.normal_(self.FF_layer1.weight, mean=0.0, std=1.0 * sigma1)
-        tn.init.uniform_(self.FF_layer1.bias, a=-1.0 * sigma1, b=1.0 * sigma1)
+        # tn.init.uniform_(self.FF_layer1.bias, a=-1.0 * sigma1, b=1.0 * sigma1)
         self.FF_layer1.weight.requires_grad = trainable2ff
         self.FF_layer1.bias.requires_grad = trainable2ff
 
         self.FF_layer2 = tn.Linear(indim, hidden_layer[0], bias=True)
         tn.init.normal_(self.FF_layer2.weight, mean=0.0, std=1.0 * sigma2)
-        tn.init.uniform_(self.FF_layer2.bias, a=-1.0 * sigma2, b=1.0 * sigma2)
+        # tn.init.uniform_(self.FF_layer2.bias, a=-1.0 * sigma2, b=1.0 * sigma2)
         self.FF_layer2.weight.requires_grad = trainable2ff
         self.FF_layer2.bias.requires_grad = trainable2ff
 
-        self.l2 = tn.Linear(2*hidden_layer[0], hidden_layer[1])
-        self.l3 = tn.Linear(2*hidden_layer[1], outdim)
+        self.lh1 = tn.Linear(2*hidden_layer[0], hidden_layer[1])
+        self.lout = tn.Linear(2*hidden_layer[1], outdim)
+
+        if init_W_B:
+            tn.init.normal_(self.lh1.weight)
+            tn.init.uniform_(self.lh1.bias, a=-1.0, b=1.0)
+
+            tn.init.normal_(self.lout.weight)
+            tn.init.uniform_(self.lout.bias, a=-1.0, b=1.0)
 
     def forward(self, x):
         Hin_FF1 = self.FF_layer1(x)  # Fourier
         HFF1 = torch.cat([torch.cos(Hin_FF1), torch.sin(Hin_FF1)], dim=-1)
-        H1 = self.l2(HFF1)          # Activation function is sin or tanh
+        H1 = self.lh1(HFF1)          # Activation function is sin or tanh
         H1 = self.actFunc(H1)
 
         Hin_FF2 = self.FF_layer2(x)  # Fourier
         HFF2 = torch.cat([torch.cos(Hin_FF2), torch.sin(Hin_FF2)], dim=-1)
-        H2 = self.l2(HFF2)  # Activation function is sin or tanh
+        H2 = self.lh1(HFF2)  # Activation function is sin or tanh
         H2 = self.actFunc(H2)
 
         H_concat = torch.cat([H1, H2], dim=-1)
 
-        H = self.l3(H_concat)            # Activation function is sin or tanh
+        H = self.lout(H_concat)            # Activation function is sin or tanh
         H = self.actFunc_out(H)
         return H
 
 
 class Net_3Hidden_2FF(tn.Module):
     def __init__(self, indim=1, outdim=1, hidden_layer=None, actName2in='tanh', actName='tanh', actName2out='linear',
-                 sigma1=1.0, sigma2=5.0, trainable2ff=False, type2float='float32', to_gpu=False, gpu_no=0):
+                 sigma1=1.0, sigma2=5.0, trainable2ff=False, type2float='float32', to_gpu=False, gpu_no=0,
+                 init_W_B=False):
         super(Net_3Hidden_2FF, self).__init__()
         self.layer_sizes = hidden_layer
         self.layer_list = []
@@ -301,51 +460,62 @@ class Net_3Hidden_2FF(tn.Module):
         else:
             self.opt2device = 'cpu'
 
-        self.actFunc_in = my_actFunc(actName=actName2in)
-        self.actFunc = my_actFunc(actName=actName)
-        self.actFunc_out = my_actFunc(actName=actName2out)
+        self.actFunc_in = ActFUnc_Module.my_actFunc(actName=actName2in)
+        self.actFunc = ActFUnc_Module.my_actFunc(actName=actName)
+        self.actFunc_out = ActFUnc_Module.my_actFunc(actName=actName2out)
 
         self.FF_layer1 = tn.Linear(indim, hidden_layer[0], bias=True)
         tn.init.normal_(self.FF_layer1.weight, mean=0.0, std=1.0 * sigma1)
-        tn.init.uniform_(self.FF_layer1.bias, a=-1.0 * sigma1, b=1.0 * sigma1)
+        # tn.init.uniform_(self.FF_layer1.bias, a=-1.0 * sigma1, b=1.0 * sigma1)
         self.FF_layer1.weight.requires_grad = trainable2ff
         self.FF_layer1.bias.requires_grad = trainable2ff
 
         self.FF_layer2 = tn.Linear(indim, hidden_layer[0], bias=True)
         tn.init.normal_(self.FF_layer2.weight, mean=0.0, std=1.0 * sigma2)
-        tn.init.uniform_(self.FF_layer2.bias, a=-1.0 * sigma2, b=1.0 * sigma2)
+        # tn.init.uniform_(self.FF_layer2.bias, a=-1.0 * sigma2, b=1.0 * sigma2)
         self.FF_layer2.weight.requires_grad = trainable2ff
         self.FF_layer2.bias.requires_grad = trainable2ff
 
-        self.l2 = tn.Linear(2*hidden_layer[0], hidden_layer[1])
-        self.l3 = tn.Linear(hidden_layer[1], hidden_layer[2])
-        self.l4 = tn.Linear(2*hidden_layer[2], outdim)
+        self.lh1 = tn.Linear(2*hidden_layer[0], hidden_layer[1])
+        self.lh2 = tn.Linear(hidden_layer[1], hidden_layer[2])
+        self.lout = tn.Linear(2*hidden_layer[2], outdim)
+
+        if init_W_B:
+            tn.init.normal_(self.lh1.weight)
+            tn.init.uniform_(self.lh1.bias, a=-1.0, b=1.0)
+
+            tn.init.normal_(self.lh2.weight)
+            tn.init.uniform_(self.lh2.bias, a=-1.0, b=1.0)
+
+            tn.init.normal_(self.lout.weight)
+            tn.init.uniform_(self.lout.bias, a=-1.0, b=1.0)
 
     def forward(self, x):
         Hin_FF1 = self.FF_layer1(x)  # Fourier
         HFF1 = torch.cat([torch.cos(Hin_FF1), torch.sin(Hin_FF1)], dim=-1)
-        H1 = self.l2(HFF1)  # Activation function is sin or tanh
+        H1 = self.lh1(HFF1)  # Activation function is sin or tanh
         H1 = self.actFunc(H1)
-        H1 = self.l3(H1)
+        H1 = self.lh2(H1)
         H1 = self.actFunc(H1)
 
         Hin_FF2 = self.FF_layer2(x)  # Fourier
         HFF2 = torch.cat([torch.cos(Hin_FF2), torch.sin(Hin_FF2)], dim=-1)
-        H2 = self.l2(HFF2)  # Activation function is sin or tanh
+        H2 = self.lh1(HFF2)  # Activation function is sin or tanh
         H2 = self.actFunc(H2)
-        H2 = self.l3(H2)  # Activation function is sin or tanh
+        H2 = self.lh2(H2)  # Activation function is sin or tanh
         H2 = self.actFunc(H2)
 
         H_concat = torch.cat([H1, H2], dim=-1)
 
-        H = self.l4(H_concat)  # Activation function is sin or tanh
+        H = self.lout(H_concat)  # Activation function is sin or tanh
         H = self.actFunc_out(H)
         return H
 
 
 class Net_2Hidden_3FF(tn.Module):
     def __init__(self, indim=1, outdim=1, hidden_layer=None, actName2in='tanh', actName='tanh', actName2out='linear',
-                 sigma1=1.0, sigma2=5.0, sigma3=5.0, trainable2ff=False, type2float='float32', to_gpu=False, gpu_no=0):
+                 sigma1=1.0, sigma2=5.0, sigma3=5.0, trainable2ff=False, type2float='float32', to_gpu=False, gpu_no=0,
+                 init_W_B=False):
         super(Net_2Hidden_3FF, self).__init__()
         self.layer_sizes = hidden_layer
         self.layer_list = []
@@ -362,9 +532,9 @@ class Net_2Hidden_3FF(tn.Module):
         else:
             self.opt2device = 'cpu'
 
-        self.actFunc_in = my_actFunc(actName=actName2in)
-        self.actFunc = my_actFunc(actName=actName)
-        self.actFunc_out = my_actFunc(actName=actName2out)
+        self.actFunc_in = ActFUnc_Module.my_actFunc(actName=actName2in)
+        self.actFunc = ActFUnc_Module.my_actFunc(actName=actName)
+        self.actFunc_out = ActFUnc_Module.my_actFunc(actName=actName2out)
 
         self.FF_layer1 = tn.Linear(indim, hidden_layer[0], bias=True)
         tn.init.normal_(self.FF_layer1.weight, mean=0.0, std=1.0 * sigma1)
@@ -384,35 +554,43 @@ class Net_2Hidden_3FF(tn.Module):
         self.FF_layer3.weight.requires_grad = trainable2ff
         self.FF_layer3.bias.requires_grad = trainable2ff
 
-        self.l2 = tn.Linear(2*hidden_layer[0], hidden_layer[1])
-        self.l3 = tn.Linear(3*hidden_layer[1], outdim)
+        self.lh1 = tn.Linear(2*hidden_layer[0], hidden_layer[1])
+        self.lout = tn.Linear(3*hidden_layer[1], outdim)
+
+        if init_W_B:
+            tn.init.normal_(self.lh1.weight)
+            tn.init.uniform_(self.lh1.bias, a=-1.0, b=1.0)
+
+            tn.init.normal_(self.lout.weight)
+            tn.init.uniform_(self.lout.bias, a=-1.0, b=1.0)
 
     def forward(self, x):
         Hin_FF1 = self.FF_layer1(x)  # Fourier
         HFF1 = torch.cat([torch.cos(Hin_FF1), torch.sin(Hin_FF1)], dim=-1)
-        H1 = self.l2(HFF1)          # Activation function is sin or tanh
+        H1 = self.lh1(HFF1)          # Activation function is sin or tanh
         H1 = self.actFunc(H1)
 
         Hin_FF2 = self.FF_layer2(x)  # Fourier
         HFF2 = torch.cat([torch.cos(Hin_FF2), torch.sin(Hin_FF2)], dim=-1)
-        H2 = self.l2(HFF2)  # Activation function is sin or tanh
+        H2 = self.lh1(HFF2)  # Activation function is sin or tanh
         H2 = self.actFunc(H2)
 
         Hin_FF3 = self.FF_layer3(x)  # Fourier
         HFF3 = torch.cat([torch.cos(Hin_FF3), torch.sin(Hin_FF3)], dim=-1)
-        H3 = self.l2(HFF3)  # Activation function is sin or tanh
+        H3 = self.lh1(HFF3)  # Activation function is sin or tanh
         H3 = self.actFunc(H3)
 
         H_concat = torch.cat([H1, H2, H3], dim=-1)
 
-        H = self.l3(H_concat)            # Activation function is sin or tanh
+        H = self.lout(H_concat)            # Activation function is sin or tanh
         H = self.actFunc_out(H)
         return H
 
 
 class Net_3Hidden_3FF(tn.Module):
     def __init__(self, indim=1, outdim=1, hidden_layer=None, actName2in='tanh', actName='tanh', actName2out='linear',
-                 sigma1=1.0, sigma2=5.0, sigma3=10.0, trainable2ff=False, type2float='float32', to_gpu=False, gpu_no=0):
+                 sigma1=1.0, sigma2=5.0, sigma3=10.0, trainable2ff=False, type2float='float32', to_gpu=False, gpu_no=0,
+                 init_W_B=False):
         super(Net_3Hidden_3FF, self).__init__()
         self.layer_sizes = hidden_layer
         self.layer_list = []
@@ -429,9 +607,9 @@ class Net_3Hidden_3FF(tn.Module):
         else:
             self.opt2device = 'cpu'
 
-        self.actFunc_in = my_actFunc(actName=actName2in)
-        self.actFunc = my_actFunc(actName=actName)
-        self.actFunc_out = my_actFunc(actName=actName2out)
+        self.actFunc_in = ActFUnc_Module.my_actFunc(actName=actName2in)
+        self.actFunc = ActFUnc_Module.my_actFunc(actName=actName)
+        self.actFunc_out = ActFUnc_Module.my_actFunc(actName=actName2out)
 
         self.FF_layer1 = tn.Linear(indim, hidden_layer[0], bias=True)
         tn.init.normal_(self.FF_layer1.weight, mean=0.0, std=1.0 * sigma1)
@@ -451,35 +629,45 @@ class Net_3Hidden_3FF(tn.Module):
         self.FF_layer3.weight.requires_grad = trainable2ff
         self.FF_layer3.bias.requires_grad = trainable2ff
 
-        self.l2 = tn.Linear(2*hidden_layer[0], hidden_layer[1])
-        self.l3 = tn.Linear(hidden_layer[1], hidden_layer[2])
-        self.l4 = tn.Linear(3*hidden_layer[2], outdim)
+        self.lh1 = tn.Linear(2*hidden_layer[0], hidden_layer[1])
+        self.lh2 = tn.Linear(hidden_layer[1], hidden_layer[2])
+        self.lout = tn.Linear(3*hidden_layer[2], outdim)
+
+        if init_W_B:
+            tn.init.normal_(self.lh1.weight)
+            tn.init.uniform_(self.lh1.bias, a=-1.0, b=1.0)
+
+            tn.init.normal_(self.lh2.weight)
+            tn.init.uniform_(self.lh2.bias, a=-1.0, b=1.0)
+
+            tn.init.normal_(self.lout.weight)
+            tn.init.uniform_(self.lout.bias, a=-1.0, b=1.0)
 
     def forward(self, x):
         Hin_FF1 = self.FF_layer1(x)  # Fourier
         HFF1 = torch.cat([torch.cos(Hin_FF1), torch.sin(Hin_FF1)], dim=-1)
-        H1 = self.l2(HFF1)  # Activation function is sin or tanh
+        H1 = self.lh1(HFF1)  # Activation function is sin or tanh
         H1 = self.actFunc(H1)
-        H1 = self.l3(H1)
+        H1 = self.lh2(H1)
         H1 = self.actFunc(H1)
 
         Hin_FF2 = self.FF_layer2(x)  # Fourier
         HFF2 = torch.cat([torch.cos(Hin_FF2), torch.sin(Hin_FF2)], dim=-1)
-        H2 = self.l2(HFF2)  # Activation function is sin or tanh
+        H2 = self.lh1(HFF2)  # Activation function is sin or tanh
         H2 = self.actFunc(H2)
-        H2 = self.l3(H2)  # Activation function is sin or tanh
+        H2 = self.lh2(H2)  # Activation function is sin or tanh
         H2 = self.actFunc(H2)
 
         Hin_FF3 = self.FF_layer3(x)  # Fourier
         HFF3 = torch.cat([torch.cos(Hin_FF3), torch.sin(Hin_FF3)], dim=-1)
-        H3 = self.l2(HFF3)  # Activation function is sin or tanh
+        H3 = self.lh1(HFF3)  # Activation function is sin or tanh
         H3 = self.actFunc(H3)
-        H3 = self.l3(H3)  # Activation function is sin or tanh
+        H3 = self.lh2(H3)  # Activation function is sin or tanh
         H3 = self.actFunc(H3)
 
         H_concat = torch.cat([H1, H2, H3], dim=-1)
 
-        H = self.l4(H_concat)  # Activation function is sin or tanh
+        H = self.lout(H_concat)  # Activation function is sin or tanh
         H = self.actFunc_out(H)
         return H
 
@@ -526,9 +714,9 @@ class Net_2Hidden_MultiScale(tn.Module):
 
         self.layer_list = []
 
-        self.actFunc_in = my_actFunc(actName=actName2in)
-        self.actFunc = my_actFunc(actName=actName)
-        self.actFunc_out = my_actFunc(actName=actName2out)
+        self.actFunc_in = ActFUnc_Module.my_actFunc(actName=actName2in)
+        self.actFunc = ActFUnc_Module.my_actFunc(actName=actName)
+        self.actFunc_out = ActFUnc_Module.my_actFunc(actName=actName2out)
 
         self.l1 = tn.Linear(indim, hidden_layer[0])
         self.l2 = tn.Linear(hidden_layer[0], hidden_layer[1])
@@ -586,9 +774,9 @@ class Net_3Hidden_MultiScale(tn.Module):
 
         self.layer_list = []
 
-        self.actFunc_in = my_actFunc(actName=actName2in)
-        self.actFunc = my_actFunc(actName=actName)
-        self.actFunc_out = my_actFunc(actName=actName2out)
+        self.actFunc_in = ActFUnc_Module.my_actFunc(actName=actName2in)
+        self.actFunc = ActFUnc_Module.my_actFunc(actName=actName)
+        self.actFunc_out = ActFUnc_Module.my_actFunc(actName=actName2out)
 
         self.l1 = tn.Linear(indim, hidden_layer[0])
         self.l2 = tn.Linear(hidden_layer[0], hidden_layer[1])
@@ -603,6 +791,72 @@ class Net_3Hidden_MultiScale(tn.Module):
         x = self.l3(x)  # Activation function is sin or tanh
         x = self.actFunc(x)
         x = self.l4(x)  # Activation function is sin or tanh
+        x = self.actFunc_out(x)
+        return x
+
+
+class Net_4Hidden_MultiScale(tn.Module):
+    def __init__(self, indim=1, outdim=1, hidden_layer=None, actName2in='tanh', actName='tanh', actName2out='linear',
+                 type2float='float32', to_gpu=False, gpu_no=0, repeat_Highfreq=True, freq=None):
+        super(Net_4Hidden_MultiScale, self).__init__()
+        self.indim = indim
+        self.outdim = outdim
+        self.hidden_units = hidden_layer
+
+        self.repeat_Highfreq = repeat_Highfreq
+        self.scales = freq
+        self.to_gpu = to_gpu
+        self.gpu_no = gpu_no
+
+        if type2float == 'float32':
+            self.float_type = torch.float32
+        elif type2float == 'float64':
+            self.float_type = torch.float64
+        elif type2float == 'float16':
+            self.float_type = torch.float16
+
+        if to_gpu:
+            self.opt2device = 'cuda:' + str(gpu_no)
+        else:
+            self.opt2device = 'cpu'
+
+        Unit_num = int(self.hidden_units[0] / len(freq))
+        mixcoe = np.repeat(freq, Unit_num)
+
+        if self.repeat_Highfreq == True:
+            mixcoe = np.concatenate(
+                (mixcoe, np.ones([self.hidden_units[0] - Unit_num * len(freq)]) * freq[-1]))
+        else:
+            mixcoe = np.concatenate(
+                (np.ones([self.hidden_units[0] - Unit_num * len(freq)]) * freq[0], mixcoe))
+
+        mixcoe = mixcoe.astype(np.float32)
+        self.torch_mixcoe = torch.from_numpy(mixcoe)
+        if self.to_gpu:
+            self.torch_mixcoe = self.torch_mixcoe.cuda(device='cuda:' + str(self.gpu_no))
+
+        self.layer_list = []
+
+        self.actFunc_in = ActFUnc_Module.my_actFunc(actName=actName2in)
+        self.actFunc = ActFUnc_Module.my_actFunc(actName=actName)
+        self.actFunc_out = ActFUnc_Module.my_actFunc(actName=actName2out)
+
+        self.lin = tn.Linear(indim, hidden_layer[0])
+        self.lh1 = tn.Linear(hidden_layer[0], hidden_layer[1])
+        self.lh2 = tn.Linear(hidden_layer[1], hidden_layer[2])
+        self.lh3 = tn.Linear(hidden_layer[2], hidden_layer[3])
+        self.lout = tn.Linear(hidden_layer[3], outdim)
+
+    def forward(self, x):
+        H = self.lin(x)
+        H = self.actFunc_in(H * self.torch_mixcoe)
+        x = self.lh1(H)  # Activation function is sin or tanh
+        x = self.actFunc(x)
+        x = self.lh2(x)  # Activation function is sin or tanh
+        x = self.actFunc(x)
+        x = self.lh3(x)  # Activation function is sin or tanh
+        x = self.actFunc(x)
+        x = self.lout(x)  # Activation function is sin or tanh
         x = self.actFunc_out(x)
         return x
 
@@ -649,20 +903,22 @@ class Net_2Hidden_FourierBase(tn.Module):
 
         self.layer_list = []
 
-        self.actFunc_in = my_actFunc(actName=actName2in)
-        self.actFunc = my_actFunc(actName=actName)
-        self.actFunc_out = my_actFunc(actName=actName2out)
+        self.actFunc_in = ActFUnc_Module.my_actFunc(actName=actName2in)
+        self.actFunc = ActFUnc_Module.my_actFunc(actName=actName)
+        self.actFunc_out = ActFUnc_Module.my_actFunc(actName=actName2out)
 
         self.Fourier_layer = tn.Linear(indim, hidden_layer[0])
+        # tn.init.xavier_normal(self.Fourier_layer.weight)
+        # tn.init.uniform_(self.Fourier_layer.bias, a=-1.0, b=1.0)
         self.l2 = tn.Linear(2*hidden_layer[0], hidden_layer[1])
-        self.l3 = tn.Linear(hidden_layer[1], outdim)
+        self.lout = tn.Linear(hidden_layer[1], outdim)
 
     def forward(self, x):
         H_FF = self.Fourier_layer(x)
         H = torch.cat([torch.cos(H_FF * self.torch_mixcoe), torch.sin(H_FF * self.torch_mixcoe)], dim=-1)
         x = self.l2(H)  # Activation function is sin or tanh
         x = self.actFunc(x)
-        x = self.l3(x)  # Activation function is sin or tanh
+        x = self.lout(x)  # Activation function is sin or tanh
         x = self.actFunc_out(x)
         return x
 
@@ -709,9 +965,9 @@ class Net_3Hidden_FourierBase(tn.Module):
 
         self.layer_list = []
 
-        self.actFunc_in = my_actFunc(actName=actName2in)
-        self.actFunc = my_actFunc(actName=actName)
-        self.actFunc_out = my_actFunc(actName=actName2out)
+        self.actFunc_in = ActFUnc_Module.my_actFunc(actName=actName2in)
+        self.actFunc = ActFUnc_Module.my_actFunc(actName=actName)
+        self.actFunc_out = ActFUnc_Module.my_actFunc(actName=actName2out)
 
         self.Fourier_layer = tn.Linear(indim, hidden_layer[0])
         self.l2 = tn.Linear(2*hidden_layer[0], hidden_layer[1])
@@ -729,3 +985,162 @@ class Net_3Hidden_FourierBase(tn.Module):
         x = self.l4(x)
         x = self.actFunc_out(x)
         return x
+
+
+class Net_2Hidden_FourierSub(tn.Module):
+    def __init__(self, indim=1, outdim=1, hidden_layer=None, actName2in='tanh', actName='tanh', actName2out='linear',
+                 type2float='float32', to_gpu=False, gpu_no=0, repeat_Highfreq=True, freq=None, num2subnets=5):
+        super(Net_2Hidden_FourierSub, self).__init__()
+        self.indim = indim
+        self.outdim = outdim
+        self.hidden_units = hidden_layer
+
+        self.repeat_Highfreq = repeat_Highfreq
+        self.scales = freq
+        self.to_gpu = to_gpu
+        self.gpu_no = gpu_no
+
+        if type2float == 'float32':
+            self.float_type = torch.float32
+        elif type2float == 'float64':
+            self.float_type = torch.float64
+        elif type2float == 'float16':
+            self.float_type = torch.float16
+
+        if to_gpu:
+            self.opt2device = 'cuda:' + str(gpu_no)
+        else:
+            self.opt2device = 'cpu'
+
+        mixcoe = np.expand_dims(freq, axis=-1)
+        mixcoe = np.expand_dims(mixcoe, axis=-1)
+        mixcoe = mixcoe.astype(np.float32)
+        self.torch_mixcoe = torch.from_numpy(mixcoe)
+        if self.to_gpu:
+            self.torch_mixcoe = self.torch_mixcoe.cuda(device='cuda:' + str(self.gpu_no))
+
+        self.actFunc_in = ActFUnc_Module.my_actFunc(actName=actName2in)
+        self.actFunc = ActFUnc_Module.my_actFunc(actName=actName)
+        self.actFunc_out = ActFUnc_Module.my_actFunc(actName=actName2out)
+
+        win_temp2tensor = torch.rand((num2subnets, indim, hidden_layer[0]), dtype=self.float_type)
+        self.Win = tn.Parameter(win_temp2tensor, requires_grad=True)
+        bin_temp2tensor = torch.zeros((num2subnets, 1, hidden_layer[0]), dtype=self.float_type)
+        self.Bin = tn.Parameter(bin_temp2tensor, requires_grad=True)
+        stddev_WB_In = (2.0 / (indim + int(hidden_layer[0] // 2))) ** 0.5
+        tn.init.normal_(self.Win, mean=0.0, std=stddev_WB_In)
+        tn.init.uniform_(self.Bin, -1.0, 1.0)
+
+        w_l1_temp = torch.rand((num2subnets, 2*hidden_layer[0], hidden_layer[1]), dtype=self.float_type)
+        self.W_L1 = tn.Parameter(w_l1_temp, requires_grad=True)
+        b_l1_temp = torch.rand((num2subnets, 1, hidden_layer[1]), dtype=self.float_type)
+        self.B_L1 = tn.Parameter(b_l1_temp, requires_grad=True)
+        stddev_WB_L1 = (2.0 / (hidden_layer[0] + hidden_layer[1])) ** 0.5
+        tn.init.normal_(self.W_L1, mean=0.0, std=stddev_WB_L1)
+        tn.init.uniform_(self.B_L1, -1.0, 1.0)
+
+        wout_temp = torch.rand((num2subnets, hidden_layer[1], outdim), dtype=self.float_type)
+        self.Wout = tn.Parameter(wout_temp, requires_grad=True)
+        bout_temp = torch.rand((num2subnets, 1, outdim), dtype=self.float_type)
+        self.Bout = tn.Parameter(bout_temp, requires_grad=True)
+        stddev_WB_Out = (2.0 / (hidden_layer[1] + outdim)) ** 0.5
+        tn.init.normal_(self.Wout, mean=0.0, std=stddev_WB_Out)
+        tn.init.uniform_(self.Bout, -1.0, 1.0)
+
+    def forward(self, x):
+        H_in = torch.matmul(x, self.Win) + self.Bin
+        H_FF = torch.cat([torch.cos(H_in * self.torch_mixcoe), torch.sin(H_in * self.torch_mixcoe)], dim=-1)
+
+        H = torch.matmul(H_FF, self.W_L1) + self.B_L1
+        H = self.actFunc(H)
+
+        H = torch.matmul(H, self.Wout) + self.Bout
+        Hout = self.actFunc_out(H)
+        out_result = torch.multiply(Hout, 1.0 / self.torch_mixcoe)
+        out_result = torch.mean(out_result, dim=0)
+        return out_result
+
+
+class Net_3Hidden_FourierSub(tn.Module):
+    def __init__(self, indim=1, outdim=1, hidden_layer=None, actName2in='tanh', actName='tanh', actName2out='linear',
+                type2float='float32', to_gpu=False, gpu_no=0, repeat_Highfreq=True, freq=None, num2subnets=5):
+        super(Net_3Hidden_FourierSub, self).__init__()
+        self.indim = indim
+        self.outdim = outdim
+        self.hidden_units = hidden_layer
+
+        self.repeat_Highfreq = repeat_Highfreq
+        self.scales = freq
+        self.to_gpu = to_gpu
+        self.gpu_no = gpu_no
+
+        if type2float == 'float32':
+            self.float_type = torch.float32
+        elif type2float == 'float64':
+            self.float_type = torch.float64
+        elif type2float == 'float16':
+            self.float_type = torch.float16
+
+        if to_gpu:
+            self.opt2device = 'cuda:' + str(gpu_no)
+        else:
+            self.opt2device = 'cpu'
+
+        mixcoe = np.expand_dims(freq, axis=-1)
+        mixcoe = np.expand_dims(mixcoe, axis=-1)
+        mixcoe = mixcoe.astype(np.float32)
+        self.torch_mixcoe = torch.from_numpy(mixcoe)
+        if self.to_gpu:
+            self.torch_mixcoe = self.torch_mixcoe.cuda(device='cuda:' + str(self.gpu_no))
+
+        self.actFunc_in = ActFUnc_Module.my_actFunc(actName=actName2in)
+        self.actFunc = ActFUnc_Module.my_actFunc(actName=actName)
+        self.actFunc_out = ActFUnc_Module.my_actFunc(actName=actName2out)
+
+        win_temp2tensor = torch.rand((num2subnets, indim, hidden_layer[0]), dtype=self.float_type)
+        self.Win = tn.Parameter(win_temp2tensor, requires_grad=True)
+        bin_temp2tensor = torch.zeros((num2subnets, 1, hidden_layer[0]), dtype=self.float_type)
+        self.Bin = tn.Parameter(bin_temp2tensor, requires_grad=True)
+        stddev_WB_In = (2.0 / (indim + hidden_layer[0]//2)) ** 0.5
+        tn.init.normal_(self.Win, mean=0.0, std=stddev_WB_In)
+        tn.init.uniform_(self.Bin, -1.0, 1.0)
+
+        w_l1_temp = torch.rand((num2subnets, 2*hidden_layer[0], hidden_layer[1]), dtype=self.float_type)
+        self.W_L1 = tn.Parameter(w_l1_temp, requires_grad=True)
+        b_l1_temp = torch.rand((num2subnets, 1, hidden_layer[1]), dtype=self.float_type)
+        self.B_L1 = tn.Parameter(b_l1_temp, requires_grad=True)
+        stddev_WB_L1 = (2.0 / (hidden_layer[0] + hidden_layer[1])) ** 0.5
+        tn.init.normal_(self.W_L1, mean=0.0, std=stddev_WB_L1)
+        tn.init.uniform_(self.B_L1, -1.0, 1.0)
+
+        w_l2_temp = torch.rand((num2subnets, hidden_layer[1], hidden_layer[2]), dtype=self.float_type)
+        self.W_L2 = tn.Parameter(w_l2_temp, requires_grad=True)
+        b_l2_temp = torch.rand((num2subnets, 1, hidden_layer[2]), dtype=self.float_type)
+        self.B_L2 = tn.Parameter(b_l2_temp, requires_grad=True)
+        stddev_WB_L2 = (2.0 / (hidden_layer[1] + hidden_layer[2])) ** 0.5
+        tn.init.normal_(self.W_L2, mean=0.0, std=stddev_WB_L2)
+        tn.init.uniform_(self.B_L2, -1.0, 1.0)
+
+        wout_temp = torch.rand((num2subnets, hidden_layer[2], outdim), dtype=self.float_type)
+        self.Wout = tn.Parameter(wout_temp, requires_grad=True)
+        bout_temp = torch.rand((num2subnets, 1, outdim), dtype=self.float_type)
+        self.Bout = tn.Parameter(bout_temp, requires_grad=True)
+        stddev_WB_Out = (2.0 / (hidden_layer[2] + outdim)) ** 0.5
+        tn.init.normal_(self.Wout, mean=0.0, std=stddev_WB_Out)
+        tn.init.uniform_(self.Bout, -1.0, 1.0)
+
+    def forward(self, x):
+        H_in = torch.matmul(x, self.Win) + self.Bin
+        H_FF = torch.cat([torch.cos(H_in * self.torch_mixcoe), torch.sin(H_in * self.torch_mixcoe)], dim=-1)
+
+        H = torch.matmul(H_FF, self.W_L1) + self.B_L1
+        H = self.actFunc(H)
+
+        H = torch.matmul(H, self.W_L2) + self.B_L2
+        H = self.actFunc(H)
+
+        H = torch.matmul(H, self.Wout) + self.Bout
+        Hout = self.actFunc_out(H)
+        out_result = torch.multiply(Hout, 1.0 / self.torch_mixcoe)
+        out_result = torch.mean(out_result, dim=0)
+        return out_result
