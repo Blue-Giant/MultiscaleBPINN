@@ -125,6 +125,25 @@ def save_2testSolus2mat(exact_solution, dnn_solution, actName=None, actName1=Non
 
 
 # 合并保存数据
+def saveTestPoints_Solus2mat(points, solu_exact, solu_predict, name2point_data=None, name2solu_exact='exact',
+                             name2solu_predict='predict', file_name='solu', outPath=None):
+    outFile2data = '%s/%s.mat' % (outPath, file_name)
+    key2mat_1 = '%s' % (name2point_data)
+    key2mat_2 = '%s' % (name2solu_exact)
+    key2mat_3 = '%s'%(name2solu_predict)
+    scio.savemat(outFile2data, {key2mat_1: points, key2mat_2: solu_exact, key2mat_3: solu_predict})
+
+
+# 合并保存数据
+def saveTrainData2mat(points2train, solu_exact2train, name2point_data=None, name2solu_exact='exact',
+                      file_name='solu', outPath=None):
+    outFile2data = '%s/%s.mat' % (outPath, file_name)
+    key2mat_1 = '%s' % (name2point_data)
+    key2mat_2 = '%s' % (name2solu_exact)
+    scio.savemat(outFile2data, {key2mat_1: points2train, key2mat_2: solu_exact2train})
+
+
+# 合并保存数据
 def save_3testSolus2mat(exact_solution, solution2act1, solution2act2, actName='Utrue', actName1=None, actName2=None,
                         outPath=None):
     outFile2data = '%s/solutions.mat' % (outPath)
