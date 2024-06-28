@@ -389,7 +389,6 @@ def leapfrog(params, momentum, log_prob_func, steps=10, step_size=0.1, jitter=0.
             ret_params.append(params)
             ret_momenta.append(momentum)
         return ret_params, ret_momenta
-
     elif sampler == Sampler.RMHMC and integrator == Integrator.EXPLICIT:
         if pass_grad is not None:
             raise RuntimeError('Passing user-determined gradients not implemented for RMHMC')
@@ -464,7 +463,6 @@ def leapfrog(params, momentum, log_prob_func, steps=10, step_size=0.1, jitter=0.
             ret_params.append(params.clone())
             ret_momenta.append(momentum.clone())
         return [ret_params,params_copy], [ret_momenta, momentum_copy]
-
     # PAGE 35 MCMC Using Hamiltonian dynamics (Neal 2011)
     elif sampler == Sampler.HMC and (integrator == Integrator.SPLITTING or integrator == Integrator.SPLITTING_RAND or Integrator.SPLITTING_KMID):
         if type(log_prob_func) is not list:
@@ -604,7 +602,6 @@ def leapfrog(params, momentum, log_prob_func, steps=10, step_size=0.1, jitter=0.
                 ret_momenta.append(momentum.clone())
 
         return ret_params, ret_momenta
-
     else:
         raise NotImplementedError()
 
@@ -850,7 +847,8 @@ def hamiltonian(params, momentum, log_prob_func, jitter=0.01, normalizing_const=
     return hamiltonian
 
 
-def sample(log_prob_func, params_init, num_samples=10, num_steps_per_sample=10, step_size=0.1, burn=0, jitter=None,
+def sample(log_prob_func, params_init, num_samples=10, num_steps_per_sample=10, step_size=0.1, update_lr=True,
+           step2lr_update=100, gamma2lr_update=0.95, burn=0, jitter=None,
            inv_mass=None, normalizing_const=1., softabs_const=None, explicit_binding_const=100,
            fixed_point_threshold=1e-5, fixed_point_max_iterations=1000, jitter_max_tries=10, sampler=Sampler.HMC,
            integrator=Integrator.IMPLICIT, metric=Metric.HESSIAN, debug=False, desired_accept_rate=0.8,
@@ -952,7 +950,7 @@ def sample(log_prob_func, params_init, num_samples=10, num_steps_per_sample=10, 
             mass = []
             for block in inv_mass:
                 mass.append(torch.inverse(block))
-        #Assum G is diag here so 1/Mass = G inverse
+        # Assum G is diag here so 1/Mass = G inverse
         elif len(inv_mass.shape) == 2:
             mass = torch.inverse(inv_mass)
         elif len(inv_mass.shape) == 1:
@@ -970,6 +968,18 @@ def sample(log_prob_func, params_init, num_samples=10, num_steps_per_sample=10, 
     if not verbose:
         util.progress_bar_init('Sampling ({}; {})'.format(sampler, integrator), num_samples, 'Samples')
     for n in range(num_samples):
+        if n > 0 and (update_lr is True) and n % step2lr_update == 0:
+            step_size = step_size*gamma2lr_update
+            print('num 2 hamilton sampler n=%d' % n)
+            print('Updating learning rate and current lr=%.10f' % step_size)
+            print('\n')
+        else:
+            step_size = step_size
+            if n % step2lr_update == 0:
+                print('num 2 hamilton sampler n=%d' % n)
+                print('Dose not update learning rate and current lr=%.10f' % step_size)
+                print('\n')
+
         if not verbose:
             util.progress_bar_update(n)
         try:
@@ -1010,7 +1020,6 @@ def sample(log_prob_func, params_init, num_samples=10, num_steps_per_sample=10, 
                                          softabs_const=softabs_const, sampler=sampler, integrator=integrator,
                                          metric=metric)  # In rm sampler so no need for inv_mass
                 # new_ham = hamiltonian([params,params_copy] , [momentum,momentum_copy], log_prob_func, jitter=jitter, softabs_const=softabs_const, explicit_binding_const=explicit_binding_const, normalizing_const=normalizing_const, sampler=sampler, integrator=integrator, metric=metric)
-
             else:
                 params = leapfrog_params[-1].to(device).detach().requires_grad_()
                 momentum = leapfrog_momenta[-1].to(device)
@@ -1019,12 +1028,12 @@ def sample(log_prob_func, params_init, num_samples=10, num_steps_per_sample=10, 
                                       normalizing_const=normalizing_const, sampler=sampler, integrator=integrator,
                                       metric=metric, inv_mass=inv_mass)
 
-
-
             # new_ham = hamiltonian(params, momentum, log_prob_func, jitter=jitter, softabs_const=softabs_const, explicit_binding_const=explicit_binding_const, normalizing_const=normalizing_const, sampler=sampler, integrator=integrator, metric=metric)
             rho = min(0., acceptance(ham, new_ham))
             if debug == 1:
-                print('Step: {}, Current Hamiltoninian: {}, Proposed Hamiltoninian: {}'.format(n,ham,new_ham))
+                print('Step: {}, Current Hamiltoninian: {}, Proposed Hamiltoninian: {}'.format(n, ham, new_ham))
+            # else:
+            #     print('Step: {}, Current Hamiltoninian: {}, Proposed Hamiltoninian: {}'.format(n, ham, new_ham))
 
             if rho >= torch.log(torch.rand(1)):
                 if debug == 1:
@@ -1058,7 +1067,7 @@ def sample(log_prob_func, params_init, num_samples=10, num_steps_per_sample=10, 
                                                          desired_accept_rate=desired_accept_rate)
                 if n == burn:
                     step_size = eps_bar
-                    print('Final Adapted Step Size: ',step_size)
+                    print('Final Adapted Step Size: ', step_size)
 
             # if not store_on_GPU: # i.e. delete stuff left on GPU
             #     # This adds approximately 50% to runtime when using colab 'Tesla P100-PCIE-16GB'
@@ -1085,13 +1094,13 @@ def sample(log_prob_func, params_init, num_samples=10, num_steps_per_sample=10, 
                 print('REJECT')
             if NUTS and n <= burn:
                 # print('hi')
-                rho = float('nan') # Acceptance rate = 0
+                rho = float('nan')  # Acceptance rate = 0
                 # print(rho)
                 step_size, eps_bar, H_t = adaptation(rho, n, step_size_init, H_t, eps_bar,
                                                      desired_accept_rate=desired_accept_rate)
-            if NUTS and n  == burn:
+            if NUTS and n == burn:
                 step_size = eps_bar
-                print('Final Adapted Step Size: ',step_size)
+                print('Final Adapted Step Size: ', step_size)
 
         if not store_on_GPU: # i.e. delete stuff left on GPU
             # This adds approximately 50% to runtime when using colab 'Tesla P100-PCIE-16GB'
@@ -1101,11 +1110,9 @@ def sample(log_prob_func, params_init, num_samples=10, num_steps_per_sample=10, 
 
             del momentum, leapfrog_params, leapfrog_momenta, ham, new_ham
             torch.cuda.empty_cache()
-
                 # var_names = ['momentum', 'leapfrog_params', 'leapfrog_momenta', 'ham', 'new_ham']
                 # [util.gpu_check_delete(var, locals()) for var in var_names]
             # import pdb; pdb.set_trace()
-
 
     # import pdb; pdb.set_trace()
     if not verbose:
