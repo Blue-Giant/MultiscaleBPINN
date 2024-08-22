@@ -137,8 +137,8 @@ def solve_bayes(Rdic=None):
     bottom_b = 0.0      # the bottom boundary of interested domain
     top_b = 1.0         # the top boundary of interested domain
 
-    N_tr_u = 30         # the number of sampled points for dealing with solution
-    N_tr_f = 4900       # the number of sampled points for dealing with force-side
+    N_tr_u = 20         # the number of sampled points for dealing with solution
+    N_tr_f = 6400       # the number of sampled points for dealing with force-side
     N_val = 10000       # the number of sampled points for obtaining real solution, parameter and force-side
 
     u, f = Eqs2BayesNN3d.get_infos_3d(equa_name=Rdic['equa_name'])   # get the infos for PDE problem
@@ -221,7 +221,7 @@ def solve_bayes(Rdic=None):
         data["x_f"] = torch.from_numpy(xyz_in)                                       # interior points
         data["y_f"] = f(data["x_f"]) + torch.randn_like(f(data["x_f"])) * like_std     # adding bias
     else:
-        N_tr_u = 500
+        N_tr_u = 400
         y_point2left_right_bd = (front_b - behind_b) * np.random.random(size=[N_tr_u, 1]) + behind_b
         z_point2left_right_bd = (top_b - bottom_b) * np.random.random(size=[N_tr_u, 1]) + bottom_b
         x_points2left_bd = np.ones(shape=[N_tr_u, 1]) * left_b
@@ -583,7 +583,8 @@ if __name__ == "__main__":
 
     # The setups of Problems
     R['PDE_type'] = 'Linear_Poisson'
-    R['equa_name'] = 'Linear_Poisson1'
+    R['equa_name'] = 'Linear_Poisson0'
+    # R['equa_name'] = 'Linear_Poisson1'
     # # R['equa_name'] = 'PDE2'
     # # R['equa_name'] = 'PDE3'
 
@@ -700,8 +701,8 @@ if __name__ == "__main__":
         # R['learning_rate'] = 0.001  # this is the learning rate for optimizer in PINN  model
         # R['learning_rate'] = 0.0005  # this is the learning rate for optimizer in PINN  model
         # R['learning_rate'] = 0.0001  # this is the learning rate for optimizer in PINN  model
-        # R['learning_rate'] = 0.00005  # this is the learning rate for optimizer in PINN  model
-        R['learning_rate'] = 0.00001  # this is the learning rate for optimizer in PINN  model
+        R['learning_rate'] = 0.00005  # this is the learning rate for optimizer in PINN  model
+        # R['learning_rate'] = 0.00001  # this is the learning rate for optimizer in PINN  model
         R['step2update_lr'] = 100
         R['gamma2update_lr'] = 0.97
 
