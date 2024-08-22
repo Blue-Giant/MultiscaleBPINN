@@ -23,6 +23,24 @@ from utilizers import save_load_NetModule
 from utilizers import DNN_tools
 
 
+def calculate_snr(signal=None, noise=None):
+    power2signal = torch.mean(torch.square(signal), dim=0)
+    power2noise = torch.mean(torch.square(noise), dim=0)
+    snr = 10.0*torch.log10(power2signal/power2noise)
+    return snr
+
+
+def print_log_SNR(snr2solu=0.01, snr2kcoef=0.01, snr2fside=0.01, log_out=None):
+    # 将运行结果打印出来
+    print('SNR of solution for training data: %.10f' % snr2solu)
+    print('SNR of k-coeff for training data: %.10f' % snr2kcoef)
+    print('SNR of force-side for training data: %.10f\n' % snr2fside)
+
+    DNN_tools.log_string('SNR of solution for training data: %.10f' % snr2solu, log_out)
+    DNN_tools.log_string('SNR of k-coeff for training data: %.10f' % snr2kcoef, log_out)
+    DNN_tools.log_string('SNR of force-side for training data: %.10f\n\n' % snr2fside, log_out)
+
+
 def log_print_run_time(run_time=0.01, log_fileout=None):
     print('running time:', run_time)
     DNN_tools.log_string('The running time: %.18f s\n' % run_time, log_fileout)
@@ -102,38 +120,63 @@ def solve_bayes(Rdic=None):
     if 'equidistance' == str.lower(Rdic['opt2sampling']):
         xu = np.reshape(np.linspace(lb, ub, N_tr_u, endpoint=True, dtype=np.float32), newshape=(-1, 1))
         np.random.shuffle(xu)
-        data["x_u"] = torch.from_numpy(xu)
-        data["y_u"] = u(data["x_u"]) + torch.randn_like(data["x_u"]) * like_std  # adding bias
+        data["x_u"] = torch.from_numpy(xu)              # interior points for solution including Dirichlet boundary
+        clean_u = u(data["x_u"])                        # the exact solution without noise on interior points
+        noise2u = torch.randn_like(clean_u) * like_std  # the noisy data
+        data["y_u"] = clean_u + noise2u                 # adding bias
 
         xf = np.reshape(np.linspace(lb, ub, N_tr_f, endpoint=False, dtype=np.float32), newshape=(-1, 1))
         np.random.shuffle(xf)
-        data["x_f"] = torch.from_numpy(xf)                                       # interior points
-        data["y_f"] = f(data["x_f"]) + torch.randn_like(data["x_f"]) * like_std  # adding bias
+        data["x_f"] = torch.from_numpy(xf)              # interior points for governed equation
+        clean_f = f(data["x_f"])                        # the exact force-side without noise on interior points
+        noise2f = torch.randn_like(clean_f) * like_std  # the noisy data
+        data["y_f"] = clean_f + noise2f                 # adding bias
 
         xk = np.reshape(np.linspace(lb, ub, N_tr_k, endpoint=False, dtype=np.float32), newshape=(-1, 1))
         np.random.shuffle(xk)
-        data["x_k"] = torch.from_numpy(xk)                                       # interior points
-        data["y_k"] = k(data["x_k"]) + torch.randn_like(data["x_k"]) * like_std  # adding bias
+        data["x_k"] = torch.from_numpy(xk)              # interior points
+        clean_k = k(data["x_k"])                        # the exact coefficient without noise on interior points
+        noise2k = torch.randn_like(clean_k) * like_std  # the noisy data
+        data["y_k"] = clean_k + noise2k                 # adding bias
     elif 'lhs' == str.lower(Rdic['opt2sampling']):
-        data["x_u"] = torch.cat((torch.linspace(lb, ub, 2).view(-1, 1), (ub - lb) * torch.rand(N_tr_u - 2, 1) + lb))
-        # torch.linspace(start, end, steps) view making it a column vector, boundary points
-        data["y_u"] = u(data["x_u"]) + torch.randn_like(data["x_u"]) * like_std  # adding bias
+        temp1 = torch.linspace(lb, ub, 2).view(-1, 1)
+        temp2 = (ub - lb) * torch.rand(N_tr_u - 2, 1) + lb
+        data["x_u"] = torch.cat((temp1, temp2), dim=0)  # interior points for solution including Dirichlet boundary
+        clean_u = u(data["x_u"])                        # the exact solution without noise on interior points
+        noise2u = torch.randn_like(clean_u) * like_std  # the noisy data
+        data["y_u"] = clean_u + noise2u                 # adding bias
 
-        data["x_f"] = (ub - lb) * torch.rand(N_tr_f, 1) + lb                     # interior points
-        data["y_f"] = f(data["x_f"]) + torch.randn_like(data["x_f"]) * like_std  # adding bias
+        data["x_f"] = (ub - lb) * torch.rand(N_tr_f, 1) + lb   # interior points
+        clean_f = f(data["x_f"])                               # the exact force-side without noise on interior points
+        noise2f = torch.randn_like(clean_f) * like_std         # the noisy data
+        data["y_f"] = clean_f + noise2f                        # adding bias
 
-        data["x_k"] = (ub - lb) * torch.rand(N_tr_k, 1) + lb                     # interior points
-        data["y_k"] = k(data["x_k"]) + torch.randn_like(data["x_k"]) * like_std  # adding bias
+        data["x_k"] = (ub - lb) * torch.rand(N_tr_k, 1) + lb   # interior points
+        clean_k = k(data["x_k"])                               # the exact coefficient without noise on interior points
+        noise2k = torch.randn_like(clean_k) * like_std         # the noisy data
+        data["y_k"] = clean_k + noise2k                        # adding bias
     else:
-        data["x_u"] = torch.cat((torch.linspace(lb, ub, 2).view(-1, 1), (ub - lb) * torch.rand(N_tr_u - 2, 1) + lb))
-        # torch.linspace(start, end, steps) view making it a column vector, boundary points
-        data["y_u"] = u(data["x_u"]) + torch.randn_like(data["x_u"]) * like_std  # adding bias
+        temp1 = torch.linspace(lb, ub, 2).view(-1, 1)
+        temp2 = (ub - lb) * torch.rand(N_tr_u - 2, 1) + lb
+        data["x_u"] = torch.cat((temp1, temp2), dim=0)        # interior points for solution including Dirichlet boundary
+        clean_u = u(data["x_u"])                              # the exact solution without noise on interior points
+        noise2u = torch.randn_like(clean_u) * like_std        # the noisy data
+        data["y_u"] = clean_u + noise2u                       # adding bias
 
-        data["x_f"] = (ub - lb) * torch.rand(N_tr_f, 1) + lb                     # interior points
-        data["y_f"] = f(data["x_f"]) + torch.randn_like(data["x_f"]) * like_std  # adding bias
+        data["x_f"] = (ub - lb) * torch.rand(N_tr_f, 1) + lb  # interior points
+        clean_f = f(data["x_f"])                              # the exact force-side without noise on interior points
+        noise2f = torch.randn_like(clean_f) * like_std        # the noisy data
+        data["y_f"] = clean_f + noise2f                       # adding bias
 
-        data["x_k"] = (ub - lb) * torch.rand(N_tr_k, 1) + lb                     # interior points
-        data["y_k"] = k(data["x_k"]) + torch.randn_like(data["x_k"]) * like_std  # adding bias
+        data["x_k"] = (ub - lb) * torch.rand(N_tr_k, 1) + lb  # interior points
+        clean_k = k(data["x_k"])                              # the exact coefficient without noise on interior points
+        noise2k = torch.randn_like(clean_k) * like_std        # the noisy data
+        data["y_k"] = clean_k + noise2k                       # adding bias
+
+    snr2solu = calculate_snr(signal=clean_u, noise=noise2u)
+    snr2coef = calculate_snr(signal=clean_k, noise=noise2k)
+    snr2force_side = calculate_snr(signal=clean_f, noise=noise2f)
+    print_log_SNR(snr2solu=snr2solu, snr2kcoef=snr2coef, snr2fside=snr2force_side, log_out=log_fileout)
 
     # exact value of solution, parameter and force-side
     data_val = {}
@@ -545,10 +588,6 @@ def LOOP_MBPINN(learning_rate=0.001, noise_level=0.01, model2NN='Net_2Hidden',
         R['Two_hidden_layer'] = [15, 30]
         R['Three_hidden_layer'] = [15, 30, 30]
         R['Four_hidden_layer'] = [15, 30, 30, 30]
-    elif R['model'] == 'Net_2Hidden_Fourier_sub' or R['model'] == 'Net_3Hidden_Fourier_sub':
-        R['Two_hidden_layer'] = [15, 20]
-        R['Three_hidden_layer'] = [15, 20, 10]
-        R['Four_hidden_layer'] = [10, 10, 10, 10]
     else:
         R['Two_hidden_layer'] = [30, 30]
         R['Three_hidden_layer'] = [30, 30, 30]
@@ -618,8 +657,8 @@ def LOOP_MBPINN(learning_rate=0.001, noise_level=0.01, model2NN='Net_2Hidden',
 if __name__ == "__main__":
     # Study the influence of hidden layer, each hidden layer has 30 units
     # NN_Model = 'Net_2Hidden'
-    # NN_Model = 'Net_2Hidden_FF'
-    NN_Model = 'Net_2Hidden_2FF'
+    NN_Model = 'Net_2Hidden_FF'
+    # NN_Model = 'Net_2Hidden_2FF'
 
     # NN_Model = 'Net_3Hidden'
     # NN_Model = 'Net_3Hidden_FF'

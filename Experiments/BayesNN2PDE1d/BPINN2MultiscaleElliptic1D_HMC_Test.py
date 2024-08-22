@@ -23,6 +23,27 @@ from utilizers import save_load_NetModule
 from utilizers import DNN_tools
 
 
+def calculate_snr(signal=None, noise=None):
+    power2signal = torch.mean(torch.square(signal), dim=0)
+    power2noise = torch.mean(torch.square(noise), dim=0)
+    snr = 10.0*torch.log10(power2signal/power2noise)
+    return snr
+
+
+def print_log_SNR(snr2solu=0.01, snr2fside=0.01, log_out=None):
+    # 将运行结果打印出来
+    print('SNR of solution for training data: %.10f\n' % snr2solu)
+    print('SNR of force-side for training data: %.10f\n' % snr2fside)
+
+    DNN_tools.log_string('SNR of solution for training data: %.10f' % snr2solu, log_out)
+    DNN_tools.log_string('SNR of force-side for training data: %.10f\n\n' % snr2fside, log_out)
+
+
+def log_print_run_time(run_time=0.01, log_fileout=None):
+    print('running time:', run_time)
+    DNN_tools.log_string('The running time: %.18f s\n' % run_time, log_fileout)
+
+
 def print_log_mse_rel(mse2solu=0.01, rel2solu=0.01, mse2force=0.01, rel2force=0.01, log_out=None):
     # 将运行结果打印出来
     print('mean square error of mean-predict and exact for solution: %.10f\n' % mse2solu)
@@ -114,6 +135,12 @@ def solve_bayes(Rdic=None):
     else:
         device = "cpu"
 
+    # hyperparameter for random seed, 随机种子设定, noise 就固定了(每次都一样), 网络参数W和B每次初始化都一样。
+    # hamiltorch.set_random_seed(123)
+    np.random.seed(123)
+    torch.manual_seed(123)
+    torch.cuda.manual_seed(123)
+
     prior_std = 1
     like_std = Rdic['noise_level']
 
@@ -150,30 +177,45 @@ def solve_bayes(Rdic=None):
     if 'equidistance' == str.lower(Rdic['opt2sampling']):
         xu = np.reshape(np.linspace(lb, ub, N_tr_u, endpoint=True, dtype=np.float32), newshape=(-1, 1))
         np.random.shuffle(xu)
-        data["x_u"] = torch.from_numpy(xu)
-        data["y_u"] = u(data["x_u"]) + torch.randn_like(data["x_u"]) * like_std  # adding bias
+        data["x_u"] = torch.from_numpy(xu)              # interior points for solution including Dirichlet boundary
+        clean_u = u(data["x_u"])                        # the exact solution without noise on interior points
+        noise2u = torch.randn_like(clean_u) * like_std  # the noisy data
+        data["y_u"] = clean_u + noise2u                 # adding bias
+
         xf = np.reshape(np.linspace(lb, ub, N_tr_f, endpoint=False, dtype=np.float32), newshape=(-1, 1))
         np.random.shuffle(xf)
-        data["x_f"] = torch.from_numpy(xf)                                       # interior points
-        data["y_f"] = f(data["x_f"]) + torch.randn_like(data["x_f"]) * like_std  # adding bias
+        data["x_f"] = torch.from_numpy(xf)              # interior points for governed equation
+        clean_f = f(data["x_f"])                        # the exact force-side without noise on interior points
+        noise2f = torch.randn_like(clean_f) * like_std  # the noisy data
+        data["y_f"] = clean_f + noise2f                 # adding bias
     elif 'lhs' == str.lower(Rdic['opt2sampling']):
         temp1 = torch.linspace(lb, ub, 2).view(-1, 1)
         temp2 = (ub - lb) * torch.rand(N_tr_u - 2, 1) + lb
-        data["x_u"] = torch.cat((temp1, temp2), dim=0)
-        # torch.linspace(start, end, steps) view making it a column vector, boundary points
-        data["y_u"] = u(data["x_u"]) + torch.randn_like(data["x_u"]) * like_std  # adding bias
+        data["x_u"] = torch.cat((temp1, temp2), dim=0)  # interior points for solution including Dirichlet boundary
+        clean_u = u(data["x_u"])                        # the exact solution without noise on interior points
+        noise2u = torch.randn_like(clean_u) * like_std  # the noisy data
+        data["y_u"] = clean_u + noise2u                 # adding bias
 
-        data["x_f"] = (ub - lb) * torch.rand(N_tr_f, 1) + lb                     # interior points
-        data["y_f"] = f(data["x_f"]) + torch.randn_like(data["x_f"]) * like_std  # adding bias
+        data["x_f"] = (ub - lb) * torch.rand(N_tr_f, 1) + lb  # interior points
+        clean_f = f(data["x_f"])                              # the exact force-side without noise on interior points
+        noise2f = torch.randn_like(clean_f) * like_std        # the noisy data
+        data["y_f"] = clean_f + noise2f                       # adding bias
     else:
         temp1 = torch.linspace(lb, ub, 2).view(-1, 1)
         temp2 = (ub - lb) * torch.rand(N_tr_u - 2, 1) + lb
-        data["x_u"] = torch.cat((temp1, temp2), dim=0)
-        # torch.linspace(start, end, steps) view making it a column vector, boundary points
-        data["y_u"] = u(data["x_u"]) + torch.randn_like(data["x_u"]) * like_std  # adding bias
+        data["x_u"] = torch.cat((temp1, temp2), dim=0)    # interior points for solution including Dirichlet boundary
+        clean_u = u(data["x_u"])                          # the exact solution without noise on interior points
+        noise2u = torch.randn_like(clean_u) * like_std    # the noisy data
+        data["y_u"] = clean_u + noise2u                   # adding bias
 
-        data["x_f"] = (ub - lb) * torch.rand(N_tr_f, 1) + lb                     # interior points
-        data["y_f"] = f(data["x_f"]) + torch.randn_like(data["x_f"]) * like_std  # adding bias
+        data["x_f"] = (ub - lb) * torch.rand(N_tr_f, 1) + lb    # interior points
+        clean_f = f(data["x_f"])                                # the exact force-side without noise on interior points
+        noise2f = torch.randn_like(clean_f) * like_std          # the noisy data
+        data["y_f"] = clean_f + noise2f                         # adding bias
+
+    snr2solu = calculate_snr(signal=clean_u, noise=noise2u)
+    snr2force_side = calculate_snr(signal=clean_f, noise=noise2f)
+    print_log_SNR(snr2solu=snr2solu, snr2fside=snr2force_side, log_out=log_fileout)
 
     # exact value of solution, parameter and force-side
     data_val = {}
@@ -208,7 +250,7 @@ def solve_bayes(Rdic=None):
     elif 'NET_3HIDDEN_FF' == str.upper(Rdic['model']):
         net_u = DNN2Bayes.Net_3Hidden_FF(indim=Rdic['indim'], outdim=Rdic['outdim'],
                                          hidden_layer=Rdic['Three_hidden_layer'], actName2in=Rdic['act_name2Input'],
-                                         actName=Rdic['act_name2Hidden'], sigma=5.0,
+                                         actName=Rdic['act_name2Hidden'], sigma=10.0,
                                          trainable2ff=Rdic['trainable2ff_layer'], type2float='float32', to_gpu=False,
                                          gpu_no=0).to(device)
     elif 'NET_3HIDDEN_2FF' == str.upper(Rdic['model']):
@@ -297,7 +339,7 @@ def solve_bayes(Rdic=None):
                                      type2float='float32', to_gpu=False, gpu_no=0, init_W_B=Rdic['initWB']).to(device)
 
     nets = [net_u]
-
+    time_begin = time.time()
     if 'PINN' == Rdic['mode2update_para']:
         if eps == 0.5:
             params_hmc, losses = BayesNN_Utils.update_paras_by_pinn(
@@ -342,6 +384,9 @@ def solve_bayes(Rdic=None):
     else:
         pred_list, log_prob_list = BayesNN_Utils.predict_model_bpinns(
             nets, params_hmc, data_val, model_loss=model_loss_0p1, tau_priors=tau_priors, tau_likes=tau_likes, pde=pde)
+
+    time_end = time.time()
+    run_time = time_end - time_begin
 
     Expected = torch.stack(log_prob_list).mean()
     # print("\n Expected validation log probability: {:.3f}".format(torch.stack(log_prob_list).mean()))
@@ -412,6 +457,8 @@ def solve_bayes(Rdic=None):
         outPath=R['FolderName'], model2net=net_u, paras2net=params_hmc, name2model='Solu', learning_rate=lr,
         expected_log_prob=Expected, epoch=R['max_epoch'], opt2update_para=Rdic['mode2update_para'])
 
+    log_print_run_time(run_time=run_time, log_fileout=log_fileout)
+
 
 if __name__ == "__main__":
     R={}
@@ -456,21 +503,27 @@ if __name__ == "__main__":
     # R['model'] = 'Net_2Hidden_2FF'
     # R['model'] = 'Net_2Hidden_3FF'
     # R['model'] = 'Net_2Hidden_Fourier'
-    R['model'] = 'Net_2Hidden_Fourier_sub'
     # R['model'] = 'Net_2Hidden_Multiscale'
     # R['model'] = 'Net_2Hidden_Multiscale_Fourier'
 
-    # R['model'] = 'Net_3Hidden'
+    R['model'] = 'Net_3Hidden'
     # R['model'] = 'Net_3Hidden_FF'
     # R['model'] = 'Net_3Hidden_2FF'
     # R['model'] = 'Net_3Hidden_3FF'
     # R['model'] = 'Net_3Hidden_Fourier'
-    # R['model'] = 'Net_3Hidden_Fourier_sub'
     # R['model'] = 'Net_3Hidden_Multiscale'
     # R['model'] = 'Net_3Hidden_Multiscale_Fourier'
 
     # R['model'] = 'Net_4Hidden'
     # R['model'] = 'Net_4Hidden_Multiscale'
+
+    # R['mode2update_para'] = 'PINN'
+    R['mode2update_para'] = 'Hamilton'
+
+    # R['noise_level'] = 0.01
+    # R['noise_level'] = 0.02
+    R['noise_level'] = 0.05
+    # R['noise_level'] = 0.1
 
     OUT_DIR_PDE = os.path.join(OUT_DIR, str(R['equa_name']))  # 路径连
     sys.path.append(OUT_DIR_PDE)
@@ -478,7 +531,7 @@ if __name__ == "__main__":
         print('---------------------- OUT_DIR_PDE ---------------------:', OUT_DIR_PDE)
         os.mkdir(OUT_DIR_PDE)
 
-    Module_Time = str(R['model']) + '_' + str(date_time_dir)
+    Module_Time = str(R['model']) + '_' + str(R['mode2update_para']) + '_Noise' + str(R['noise_level']) + '_' + str(date_time_dir)
     FolderName = os.path.join(OUT_DIR_PDE, Module_Time)          # 路径连接
     if not os.path.exists(FolderName):
         print('--------------------- FolderName -----------------:', FolderName)
@@ -506,10 +559,6 @@ if __name__ == "__main__":
         R['Two_hidden_layer'] = [15, 30]
         R['Three_hidden_layer'] = [15, 30, 30]
         R['Four_hidden_layer'] = [15, 30, 30, 30]
-    elif R['model'] == 'Net_2Hidden_Fourier_sub' or R['model'] == 'Net_3Hidden_Fourier_sub':
-        R['Two_hidden_layer'] = [7, 10]
-        R['Three_hidden_layer'] = [7, 10, 10]
-        R['Four_hidden_layer'] = [7, 10, 10, 10]
     else:
         R['Two_hidden_layer'] = [30, 30]
         R['Three_hidden_layer'] = [30, 30, 30]
@@ -528,25 +577,18 @@ if __name__ == "__main__":
         R['act_name2Input'] = 'fourier'
 
     if R['model'] == 'Net_2Hidden' or R['model'] == 'Net_3Hidden' or R['model'] == 'Net_4Hidden':
-        R['act_name2Hidden'] = 'tanh'
-        # R['act_name2Hidden'] = 'sin'
+        # R['act_name2Hidden'] = 'tanh'
+        R['act_name2Hidden'] = 'sin'
         # R['act_name2Hidden'] = 'silu'
     else:
-        R['act_name2Hidden'] = 'tanh'
+        # R['act_name2Hidden'] = 'tanh'
         # R['act_name2Hidden'] = 'enh_tanh'
-        # R['act_name2Hidden'] = 'sin'
+        R['act_name2Hidden'] = 'sin'
         # R['act_name2Hidden'] = 'silu'
         # R['act_name2Hidden'] = 'gelu'
         # R['act_name2Hidden'] = 'sinAddcos'
 
     R['act_name2Output'] = 'linear'
-
-    # R['mode2update_para'] = 'PINN'
-    R['mode2update_para'] = 'Hamilton'
-
-    # R['noise_level'] = 0.01
-    R['noise_level'] = 0.05
-    # R['noise_level'] = 0.1
 
     R['trainable2ff_layer'] = True
 
@@ -555,11 +597,11 @@ if __name__ == "__main__":
     R['initWB'] = True
 
     if R['mode2update_para'] == 'PINN':
-        R['update_lr'] = False
+        R['update_lr'] = True
         # R['learning_rate'] = 0.01     # this is the learning rate for optimizer in PINN  model
         # R['learning_rate'] = 0.0025   # this is the learning rate for optimizer in PINN  model
-        # R['learning_rate'] = 0.005  # this is the learning rate for optimizer in PINN  model
-        R['learning_rate'] = 0.001  # this is the learning rate for optimizer in PINN  model
+        R['learning_rate'] = 0.005  # this is the learning rate for optimizer in PINN  model
+        # R['learning_rate'] = 0.001  # this is the learning rate for optimizer in PINN  model
         # R['learning_rate'] = 0.0005  # this is the learning rate for optimizer in PINN  model
         # R['learning_rate'] = 0.0001  # this is the learning rate for optimizer in PINN  model
         # R['learning_rate'] = 0.00005  # this is the learning rate for optimizer in PINN  model
@@ -576,15 +618,15 @@ if __name__ == "__main__":
             max_epoch2training = input('please input a stop epoch:')
             R['max_epoch'] = int(max_epoch2training)
     else:
-        R['update_lr'] = False
+        R['update_lr'] = True
         # R['learning_rate'] = 0.001  # this is the learning rate for optimizer in Hamilton  model
         # R['learning_rate'] = 0.0005  # this is the learning rate for optimizer in Hamilton  model
-        # R['learning_rate'] = 0.00025  # this is the learning rate for optimizer in Hamilton  model
+        R['learning_rate'] = 0.00025  # this is the learning rate for optimizer in Hamilton  model
         # R['learning_rate'] = 0.0001  # this is the learning rate for optimizer in Hamilton  model
-        R['learning_rate'] = 0.00005  # this is the learning rate for optimizer in Hamilton  model
+        # R['learning_rate'] = 0.00005  # this is the learning rate for optimizer in Hamilton  model
         # R['learning_rate'] = 0.00001  # this is the learning rate for optimizer in Hamilton  model
         R['step2update_lr'] = 25
-        R['gamma2update_lr'] = 0.85
+        R['gamma2update_lr'] = 0.9
 
         R['sample_num2hamilton'] = 600
         R['max_epoch'] = 20000

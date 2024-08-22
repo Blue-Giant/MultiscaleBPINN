@@ -131,34 +131,6 @@ class Nets2Para_Solu(nn.Module):
                                                            actName2out=Output_actName,
                                                            type2float=float_type, to_gpu=with_gpu, gpu_no=0,
                                                            repeat_Highfreq=False, freq=scale2k).to(device)
-        elif 'NET_2HIDDEN_FOURIER_SUB' == str.upper(name2model):
-            scale2u = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-            # scale2u = np.array([1, 2, 3, 4, 5])
-            scale2k = np.array([1, 2, 3])
-            self.net_u = DNN2Bayes.Net_2Hidden_FourierSub(indim=dim_in, outdim=dim_out, hidden_layer=hidden2_units,
-                                                          actName2in=Input_actName, actName=Hidden_actName,
-                                                          actName2out=Output_actName,
-                                                          type2float=float_type, to_gpu=with_gpu, gpu_no=0,
-                                                          repeat_Highfreq=True, freq=scale2u, num2subnets=len(scale2u)).to(device)
-            self.net_k = DNN2Bayes.Net_2Hidden_FourierSub(indim=dim_in, outdim=dim_out, hidden_layer=hidden2_units,
-                                                          actName2in=Input_actName, actName=Hidden_actName,
-                                                          actName2out=Output_actName,
-                                                          type2float=float_type, to_gpu=with_gpu, gpu_no=0,
-                                                          repeat_Highfreq=False, freq=scale2k, num2subnets=len(scale2k)).to(device)
-        elif 'NET_3HIDDEN_FOURIER_SUB' == str.upper(name2model):
-            scale2u = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-            # scale2u = np.array([1, 2, 3, 4, 5])
-            scale2k = np.array([1, 2, 3])
-            self.net_u = DNN2Bayes.Net_3Hidden_FourierSub(indim=dim_in, outdim=dim_out, hidden_layer=hidden3_units,
-                                                          actName2in=Input_actName, actName=Hidden_actName,
-                                                          actName2out=Output_actName,
-                                                          type2float=float_type, to_gpu=with_gpu, gpu_no=0,
-                                                          repeat_Highfreq=True, freq=scale2u, num2subnets=len(scale2u)).to(device)
-            self.net_k = DNN2Bayes.Net_3Hidden_FourierSub(indim=dim_in, outdim=dim_out, hidden_layer=hidden3_units,
-                                                          actName2in=Input_actName, actName=Hidden_actName,
-                                                          actName2out=Output_actName,
-                                                          type2float=float_type, to_gpu=with_gpu, gpu_no=0,
-                                                          repeat_Highfreq=False, freq=scale2k, num2subnets=len(scale2k)).to(device)
         elif 'NET_2HIDDEN_MULTISCALE' == str.upper(name2model):
             scale2u = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
             scale2k = np.array([1, 2, 3, 4, 5])
@@ -521,7 +493,6 @@ if __name__ == "__main__":
     # R['model'] = 'Net_2Hidden_2FF'
     # R['model'] = 'Net_2Hidden_3FF'
     # R['model'] = 'Net_2Hidden_Fourier'
-    # R['model'] = 'Net_2Hidden_Fourier_sub'
     # R['model'] = 'Net_2Hidden_Multiscale'
     # R['model'] = 'Net_2Hidden_Multiscale_Fourier'
 
@@ -530,7 +501,6 @@ if __name__ == "__main__":
     # R['model'] = 'Net_3Hidden_2FF'
     # R['model'] = 'Net_3Hidden_3FF'
     # R['model'] = 'Net_3Hidden_Fourier'
-    # R['model'] = 'Net_3Hidden_Fourier_sub'
     # R['model'] = 'Net_3Hidden_Multiscale'
     # R['model'] = 'Net_3Hidden_Multiscale_Fourier'
 
@@ -570,10 +540,6 @@ if __name__ == "__main__":
         R['Two_hidden_layer'] = [15, 20]
         R['Three_hidden_layer'] = [15, 20, 10]
         R['Four_hidden_layer'] = [15, 20, 20, 20]
-    elif R['model'] == 'Net_2Hidden_Fourier_sub' or R['model'] == 'Net_3Hidden_Fourier_sub':
-        R['Two_hidden_layer'] = [15, 20]
-        R['Three_hidden_layer'] = [15, 20, 10]
-        R['Four_hidden_layer'] = [10, 10, 10, 10]
     else:
         R['Two_hidden_layer'] = [20, 30]
         R['Three_hidden_layer'] = [20, 20, 30]

@@ -20,6 +20,43 @@ from utilizers import plot2Bayes
 from utilizers import Log_Print2Bayes
 from utilizers import saveData
 from utilizers import save_load_NetModule
+from utilizers import DNN_tools
+
+
+def calculate_snr(signal=None, noise=None):
+    power2signal = torch.mean(torch.square(signal), dim=0)
+    power2noise = torch.mean(torch.square(noise), dim=0)
+    snr = 10.0*torch.log10(power2signal/power2noise)
+    return snr
+
+
+def print_log_SNR(snr2solu=0.01, snr2fside=0.01, log_out=None):
+    # 将运行结果打印出来
+    print('SNR of solution for training data: %.10f' % snr2solu)
+    print('SNR of force-side for training data: %.10f\n' % snr2fside)
+
+    DNN_tools.log_string('SNR of solution for training data: %.10f' % snr2solu, log_out)
+    DNN_tools.log_string('SNR of force-side for training data: %.10f\n\n' % snr2fside, log_out)
+
+
+def log_print_run_time(run_time=0.01, log_fileout=None):
+    print('running time:', run_time)
+    DNN_tools.log_string('The running time: %.18f s\n' % run_time, log_fileout)
+
+
+def print_log_mse_rel(mse2solu=0.01, rel2solu=0.01, mse2force=0.01, rel2force=0.01, log_out=None):
+    # 将运行结果打印出来
+    print('mean square error of mean-predict and exact for solution: %.10f\n' % mse2solu)
+    print('relative error of mean-predict and exact for solution: %.10f\n' % rel2solu)
+
+    print('mean square error of mean-predict and exact for force: %.10f\n' % mse2force)
+    print('relative error of mean-predict and exact for force: %.10f\n' % rel2force)
+
+    DNN_tools.log_string('mean square error of mean-predict and exact for solution: %.10f' % mse2solu, log_out)
+    DNN_tools.log_string('relative error of mean-predict and exact for solution: %.10f\n\n' % rel2solu, log_out)
+
+    DNN_tools.log_string('mean square error of mean-predict and exact for force: %.10f' % mse2force, log_out)
+    DNN_tools.log_string('relative error of mean-predict and exact for force: %.10f\n\n' % rel2force, log_out)
 
 
 def model_loss(data, fmodel, params_unflattened, tau_likes, gradients, params_single=None):
@@ -64,6 +101,12 @@ def solve_bayes(Rdic=None):
     else:
         device = "cpu"
 
+    # hyperparameter for random seed, 随机种子设定, noise 就固定了(每次都一样), 网络参数W和B每次初始化都一样。
+    hamiltorch.set_random_seed(123)  # 这个命令包括下面三个
+    # np.random.seed(123)
+    # torch.manual_seed(123)
+    # torch.cuda.manual_seed(123)
+
     prior_std = 1
     like_std = Rdic['noise_level']
 
@@ -86,7 +129,6 @@ def solve_bayes(Rdic=None):
     ub = 1        # the right boundary of interested interval
     N_tr_u = 50   # the number of sampled points for dealing with solution
     N_tr_f = 50   # the number of sampled points for dealing with force-side
-    N_tr_k = 25   # the number of sampled points for dealing with parameter
     N_val = 1000  # the number of sampled points for obtaining real solution, parameter and force-side
 
     u, k, f = Eqs2BayesNN.get_infos_1d(equa_name=Rdic['equa_name'])   # get the infos for PDE problem
@@ -95,38 +137,45 @@ def solve_bayes(Rdic=None):
     if 'equidistance' == str.lower(Rdic['opt2sampling']):
         xu = np.reshape(np.linspace(lb, ub, N_tr_u, endpoint=True, dtype=np.float32), newshape=(-1, 1))
         np.random.shuffle(xu)
-        data["x_u"] = torch.from_numpy(xu)
-        data["y_u"] = u(data["x_u"]) + torch.randn_like(data["x_u"]) * like_std  # adding bias
+        data["x_u"] = torch.from_numpy(xu)  # interior points for solution including Dirichlet boundary
+        clean_u = u(data["x_u"])  # the exact solution without noise on interior points
+        noise2u = torch.randn_like(clean_u) * like_std  # the noisy data
+        data["y_u"] = clean_u + noise2u  # adding bias
 
         xf = np.reshape(np.linspace(lb, ub, N_tr_f, endpoint=False, dtype=np.float32), newshape=(-1, 1))
         np.random.shuffle(xf)
-        data["x_f"] = torch.from_numpy(xf)                                       # interior points
-        data["y_f"] = f(data["x_f"]) + torch.randn_like(data["x_f"]) * like_std  # adding bias
-
-        xk = np.reshape(np.linspace(lb, ub, N_tr_k, endpoint=False, dtype=np.float32), newshape=(-1, 1))
-        np.random.shuffle(xk)
-        data["x_k"] = torch.from_numpy(xk)                                       # interior points
-        data["y_k"] = k(data["x_k"]) + torch.randn_like(data["x_k"]) * like_std  # adding bias
+        data["x_f"] = torch.from_numpy(xf)  # interior points for governed equation
+        clean_f = f(data["x_f"])  # the exact force-side without noise on interior points
+        noise2f = torch.randn_like(clean_f) * like_std  # the noisy data
+        data["y_f"] = clean_f + noise2f  # adding bias
     elif 'lhs' == str.lower(Rdic['opt2sampling']):
-        data["x_u"] = torch.cat((torch.linspace(lb, ub, 2).view(-1, 1), (ub - lb) * torch.rand(N_tr_u - 2, 1) + lb))
-        # torch.linspace(start, end, steps) view making it a column vector, boundary points
-        data["y_u"] = u(data["x_u"]) + torch.randn_like(data["x_u"]) * like_std  # adding bias
+        temp1 = torch.linspace(lb, ub, 2).view(-1, 1)
+        temp2 = (ub - lb) * torch.rand(N_tr_u - 2, 1) + lb
+        data["x_u"] = torch.cat((temp1, temp2), dim=0)  # interior points for solution including Dirichlet boundary
+        clean_u = u(data["x_u"])  # the exact solution without noise on interior points
+        noise2u = torch.randn_like(clean_u) * like_std  # the noisy data
+        data["y_u"] = clean_u + noise2u  # adding bias
 
-        data["x_f"] = (ub - lb) * torch.rand(N_tr_f, 1) + lb                     # interior points
-        data["y_f"] = f(data["x_f"]) + torch.randn_like(data["x_f"]) * like_std  # adding bias
-
-        data["x_k"] = (ub - lb) * torch.rand(N_tr_k, 1) + lb                     # interior points
-        data["y_k"] = k(data["x_k"]) + torch.randn_like(data["x_k"]) * like_std  # adding bias
+        data["x_f"] = (ub - lb) * torch.rand(N_tr_f, 1) + lb  # interior points
+        clean_f = f(data["x_f"])  # the exact force-side without noise on interior points
+        noise2f = torch.randn_like(clean_f) * like_std  # the noisy data
+        data["y_f"] = clean_f + noise2f  # adding bias
     else:
-        data["x_u"] = torch.cat((torch.linspace(lb, ub, 2).view(-1, 1), (ub - lb) * torch.rand(N_tr_u - 2, 1) + lb))
-        # torch.linspace(start, end, steps) view making it a column vector, boundary points
-        data["y_u"] = u(data["x_u"]) + torch.randn_like(data["x_u"]) * like_std  # adding bias
+        temp1 = torch.linspace(lb, ub, 2).view(-1, 1)
+        temp2 = (ub - lb) * torch.rand(N_tr_u - 2, 1) + lb
+        data["x_u"] = torch.cat((temp1, temp2), dim=0)  # interior points for solution including Dirichlet boundary
+        clean_u = u(data["x_u"])  # the exact solution without noise on interior points
+        noise2u = torch.randn_like(clean_u) * like_std  # the noisy data
+        data["y_u"] = clean_u + noise2u  # adding bias
 
-        data["x_f"] = (ub - lb) * torch.rand(N_tr_f, 1) + lb                     # interior points
-        data["y_f"] = f(data["x_f"]) + torch.randn_like(data["x_f"]) * like_std  # adding bias
+        data["x_f"] = (ub - lb) * torch.rand(N_tr_f, 1) + lb  # interior points
+        clean_f = f(data["x_f"])  # the exact force-side without noise on interior points
+        noise2f = torch.randn_like(clean_f) * like_std  # the noisy data
+        data["y_f"] = clean_f + noise2f  # adding bias
 
-        data["x_k"] = (ub - lb) * torch.rand(N_tr_k, 1) + lb                     # interior points
-        data["y_k"] = k(data["x_k"]) + torch.randn_like(data["x_k"]) * like_std  # adding bias
+    snr2solu = calculate_snr(signal=clean_u, noise=noise2u)
+    snr2force_side = calculate_snr(signal=clean_f, noise=noise2f)
+    print_log_SNR(snr2solu=snr2solu, snr2fside=snr2force_side, log_out=log_fileout)
 
     # exact value of solution, parameter and force-side
     data_val = {}
@@ -134,8 +183,6 @@ def solve_bayes(Rdic=None):
     data_val["y_u"] = u(data_val["x_u"])
     data_val["x_f"] = torch.linspace(lb, ub, N_val).view(-1, 1)
     data_val["y_f"] = f(data_val["x_f"])
-    data_val["x_k"] = torch.linspace(lb, ub, N_val).view(-1, 1)
-    data_val["y_k"] = k(data_val["x_k"])
 
     for d in data:
         data[d] = data[d].to(device)
@@ -148,20 +195,10 @@ def solve_bayes(Rdic=None):
                                          actName=Rdic['act_name2Hidden'], sigma=10.0,
                                          trainable2ff=Rdic['trainable2ff_layer'],
                                          type2float='float32', to_gpu=False, gpu_no=0).to(device)
-        net_k = DNN2Bayes.Net_2Hidden_FF(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                         hidden_layer=Rdic['Two_hidden_layer'], actName2in=Rdic['act_name2Input'],
-                                         actName=Rdic['act_name2Hidden'], sigma=2.0,
-                                         trainable2ff=Rdic['trainable2ff_layer'],
-                                         type2float='float32', to_gpu=False, gpu_no=0).to(device)
     elif 'NET_2HIDDEN_2FF' == str.upper(Rdic['model']):
         net_u = DNN2Bayes.Net_2Hidden_2FF(indim=Rdic['indim'], outdim=Rdic['outdim'],
                                           hidden_layer=Rdic['Two_hidden_layer'], actName2in=Rdic['act_name2Input'],
                                           actName=Rdic['act_name2Hidden'], sigma1=1.0, sigma2=10.0,
-                                          trainable2ff=Rdic['trainable2ff_layer'], type2float='float32', to_gpu=False,
-                                          gpu_no=0).to(device)
-        net_k = DNN2Bayes.Net_2Hidden_2FF(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                          hidden_layer=Rdic['Two_hidden_layer'], actName2in=Rdic['act_name2Input'],
-                                          actName=Rdic['act_name2Hidden'], sigma1=1.0, sigma2=1.0,
                                           trainable2ff=Rdic['trainable2ff_layer'], type2float='float32', to_gpu=False,
                                           gpu_no=0).to(device)
     elif 'NET_2HIDDEN_3FF' == str.upper(Rdic['model']):
@@ -170,31 +207,16 @@ def solve_bayes(Rdic=None):
                                           actName=Rdic['act_name2Hidden'], sigma1=1.0, sigma2=5.0, sigma3=10.0,
                                           trainable2ff=Rdic['trainable2ff_layer'], type2float='float32', to_gpu=False,
                                           gpu_no=0).to(device)
-        net_k = DNN2Bayes.Net_2Hidden_3FF(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                          hidden_layer=Rdic['Two_hidden_layer'], actName2in=Rdic['act_name2Input'],
-                                          actName=Rdic['act_name2Hidden'], sigma1=1.0, sigma2=2.5, sigma3=5.0,
-                                          trainable2ff=Rdic['trainable2ff_layer'], type2float='float32', to_gpu=False,
-                                          gpu_no=0).to(device)
     elif 'NET_3HIDDEN_FF' == str.upper(Rdic['model']):
         net_u = DNN2Bayes.Net_3Hidden_FF(indim=Rdic['indim'], outdim=Rdic['outdim'],
                                          hidden_layer=Rdic['Three_hidden_layer'], actName2in=Rdic['act_name2Input'],
                                          actName=Rdic['act_name2Hidden'], sigma=5.0,
                                          trainable2ff=Rdic['trainable2ff_layer'], type2float='float32', to_gpu=False,
                                          gpu_no=0).to(device)
-        net_k = DNN2Bayes.Net_3Hidden_FF(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                         hidden_layer=Rdic['Three_hidden_layer'],
-                                         actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
-                                         sigma=2.5, trainable2ff=Rdic['trainable2ff_layer'], type2float='float32',
-                                         to_gpu=False, gpu_no=0).to(device)
     elif 'NET_3HIDDEN_2FF' == str.upper(Rdic['model']):
         net_u = DNN2Bayes.Net_3Hidden_2FF(indim=Rdic['indim'], outdim=Rdic['outdim'],
                                           hidden_layer=Rdic['Three_hidden_layer'], actName2in=Rdic['act_name2Input'],
                                           actName=Rdic['act_name2Hidden'], sigma1=1.0, sigma2=10.0,
-                                          trainable2ff=Rdic['trainable2ff_layer'], type2float='float32', to_gpu=False,
-                                          gpu_no=0).to(device)
-        net_k = DNN2Bayes.Net_3Hidden_2FF(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                          hidden_layer=Rdic['Three_hidden_layer'], actName2in=Rdic['act_name2Input'],
-                                          actName=Rdic['act_name2Hidden'], sigma1=1.0, sigma2=5,
                                           trainable2ff=Rdic['trainable2ff_layer'], type2float='float32', to_gpu=False,
                                           gpu_no=0).to(device)
     elif 'NET_3HIDDEN_3FF' == str.upper(Rdic['model']):
@@ -203,91 +225,34 @@ def solve_bayes(Rdic=None):
                                           actName=Rdic['act_name2Hidden'], sigma1=1.0, sigma2=5.0, sigma3=10.0,
                                           trainable2ff=Rdic['trainable2ff_layer'], type2float='float32', to_gpu=False,
                                           gpu_no=0).to(device)
-        net_k = DNN2Bayes.Net_3Hidden_3FF(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                          hidden_layer=Rdic['Three_hidden_layer'], actName2in=Rdic['act_name2Input'],
-                                          actName=Rdic['act_name2Hidden'], sigma1=1.0, sigma2=2.5, sigma3=5,
-                                          trainable2ff=Rdic['trainable2ff_layer'], type2float='float32', to_gpu=False,
-                                          gpu_no=0).to(device)
     elif 'NET_2HIDDEN_MULTISCALE_FOURIER' == str.upper(Rdic['model']):
         scale2u = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        scale2k = np.array([1, 2, 3, 4, 5])
         net_u = DNN2Bayes.Net_2Hidden_FourierBase(indim=Rdic['indim'], outdim=Rdic['outdim'],
                                                   hidden_layer=Rdic['Two_hidden_layer'],
                                                   actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
                                                   type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
                                                   repeat_Highfreq=True, freq=scale2u).to(device)
-        net_k = DNN2Bayes.Net_2Hidden_FourierBase(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                                  hidden_layer=Rdic['Two_hidden_layer'],
-                                                  actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
-                                                  type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
-                                                  repeat_Highfreq=False, freq=scale2k).to(device)
     elif 'NET_3HIDDEN_MULTISCALE_FOURIER' == str.upper(Rdic['model']):
         scale2u = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        scale2k = np.array([1, 2, 3, 4, 5])
         net_u = DNN2Bayes.Net_3Hidden_FourierBase(indim=Rdic['indim'], outdim=Rdic['outdim'],
                                                   hidden_layer=Rdic['Three_hidden_layer'],
                                                   actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
                                                   type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
                                                   repeat_Highfreq=True, freq=scale2u).to(device)
-        net_k = DNN2Bayes.Net_3Hidden_FourierBase(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                                  hidden_layer=Rdic['Three_hidden_layer'],
-                                                  actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
-                                                  type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
-                                                  repeat_Highfreq=False, freq=scale2k).to(device)
-    elif 'NET_2HIDDEN_FOURIER_SUB' == str.upper(Rdic['model']):
-        scale2u = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        # scale2u = np.array([1, 2, 3, 4, 5])
-        scale2k = np.array([1, 2, 3])
-        net_u = DNN2Bayes.Net_2Hidden_FourierSub(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                                 hidden_layer=Rdic['Two_hidden_layer'],
-                                                 actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
-                                                 type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
-                                                 repeat_Highfreq=True, freq=scale2u, num2subnets=len(scale2u)).to(device)
-        net_k = DNN2Bayes.Net_2Hidden_FourierSub(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                                 hidden_layer=Rdic['Two_hidden_layer'],
-                                                 actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
-                                                 type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
-                                                 repeat_Highfreq=False, freq=scale2k, num2subnets=len(scale2k)).to(device)
-    elif 'NET_3HIDDEN_FOURIER_SUB' == str.upper(Rdic['model']):
-        scale2u = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        # scale2u = np.array([1, 2, 3, 4, 5])
-        scale2k = np.array([1, 2, 3])
-        net_u = DNN2Bayes.Net_3Hidden_FourierSub(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                                 hidden_layer=Rdic['Three_hidden_layer'],
-                                                 actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
-                                                 type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
-                                                 repeat_Highfreq=True, freq=scale2u, num2subnets=len(scale2u)).to(device)
-        net_k = DNN2Bayes.Net_3Hidden_FourierSub(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                                 hidden_layer=Rdic['Three_hidden_layer'],
-                                                 actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
-                                                 type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
-                                                 repeat_Highfreq=False, freq=scale2k, num2subnets=len(scale2k)).to(device)
     elif 'NET_2HIDDEN_MULTISCALE' == str.upper(Rdic['model']):
         scale2u = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        scale2k = np.array([1, 2, 3, 4, 5])
         net_u = DNN2Bayes.Net_2Hidden_MultiScale(indim=Rdic['indim'], outdim=Rdic['outdim'],
                                                  hidden_layer=Rdic['Two_hidden_layer'],
                                                  actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
                                                  type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
                                                  repeat_Highfreq=True, freq=scale2u).to(device)
-        net_k = DNN2Bayes.Net_2Hidden_MultiScale(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                                 hidden_layer=Rdic['Two_hidden_layer'],
-                                                 actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
-                                                 type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
-                                                 repeat_Highfreq=False, freq=scale2k).to(device)
     elif 'NET_3HIDDEN_MULTISCALE' == str.upper(Rdic['model']):
         scale2u = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        scale2k = np.array([1, 2, 3, 4, 5])
         net_u = DNN2Bayes.Net_3Hidden_MultiScale(indim=Rdic['indim'], outdim=Rdic['outdim'],
                                                  hidden_layer=Rdic['Three_hidden_layer'],
                                                  actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
                                                  type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
                                                  repeat_Highfreq=True, freq=scale2u).to(device)
-        net_k = DNN2Bayes.Net_3Hidden_MultiScale(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                                 hidden_layer=Rdic['Three_hidden_layer'],
-                                                 actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
-                                                 type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
-                                                 repeat_Highfreq=False, freq=scale2k).to(device)
     elif 'NET_4HIDDEN_MULTISCALE' == str.upper(Rdic['model']):
         scale2u = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
         scale2k = np.array([1, 2, 3, 4, 5])
@@ -296,31 +261,16 @@ def solve_bayes(Rdic=None):
                                                  actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
                                                  type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
                                                  repeat_Highfreq=True, freq=scale2u).to(device)
-        net_k = DNN2Bayes.Net_4Hidden_MultiScale(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                                 hidden_layer=Rdic['Four_hidden_layer'],
-                                                 actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
-                                                 type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
-                                                 repeat_Highfreq=False, freq=scale2k).to(device)
     elif 'NET_2HIDDEN' == str.upper(Rdic['model']):
         net_u = BayesDNN.Net_2Hidden(indim=Rdic['indim'], outdim=Rdic['outdim'], hidden_layer=Rdic['Two_hidden_layer'],
-                                     actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
-                                     type2float='float32', to_gpu=False, gpu_no=0, init_W_B=Rdic['initWB']).to(device)
-        net_k = BayesDNN.Net_2Hidden(indim=Rdic['indim'], outdim=Rdic['outdim'], hidden_layer=Rdic['Two_hidden_layer'],
                                      actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
                                      type2float='float32', to_gpu=False, gpu_no=0, init_W_B=Rdic['initWB']).to(device)
     elif 'NET_3HIDDEN' == str.upper(Rdic['model']):
         net_u = BayesDNN.Net_3Hidden(indim=Rdic['indim'], outdim=Rdic['outdim'], hidden_layer=Rdic['Three_hidden_layer'],
                                      actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
                                      type2float='float32', to_gpu=False, gpu_no=0, init_W_B=Rdic['initWB']).to(device)
-        net_k = BayesDNN.Net_3Hidden(indim=Rdic['indim'], outdim=Rdic['outdim'], hidden_layer=Rdic['Three_hidden_layer'],
-                                     actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
-                                     type2float='float32', to_gpu=False, gpu_no=0, init_W_B=Rdic['initWB']).to(device)
     elif 'NET_2HIDDEN_FOURIER' == str.upper(Rdic['model']):
         net_u = DNN2Bayes.Net_2Hidden_FourierBasis(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                                   hidden_layer=Rdic['Two_hidden_layer'],
-                                                   actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
-                                                   type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0).to(device)
-        net_k = DNN2Bayes.Net_2Hidden_FourierBasis(indim=Rdic['indim'], outdim=Rdic['outdim'],
                                                    hidden_layer=Rdic['Two_hidden_layer'],
                                                    actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
                                                    type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0).to(device)
@@ -329,28 +279,16 @@ def solve_bayes(Rdic=None):
                                                    hidden_layer=Rdic['Three_hidden_layer'],
                                                    actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
                                                    type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0).to(device)
-        net_k = DNN2Bayes.Net_3Hidden_FourierBasis(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                                   hidden_layer=Rdic['Three_hidden_layer'],
-                                                   actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
-                                                   type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0).to(device)
     else:
         net_u = BayesDNN.Net_4Hidden(indim=Rdic['indim'], outdim=Rdic['outdim'], hidden_layer=Rdic['Four_hidden_layer'],
                                      actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
                                      type2float='float32', to_gpu=False, gpu_no=0, init_W_B=Rdic['initWB']).to(device)
-        net_k = BayesDNN.Net_4Hidden(indim=Rdic['indim'], outdim=Rdic['outdim'], hidden_layer=Rdic['Four_hidden_layer'],
-                                     actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
-                                     type2float='float32', to_gpu=False, gpu_no=0, init_W_B=Rdic['initWB']).to(device)
 
-    nets = [net_u, net_k]
+    nets = [net_u]
 
     # using PINN mode to update the parameters of DNN or not
     # sampling!! The training data is fixed for all training process? why? Can it be varied? No, it is fixed
-    # params_hmc = BayesNN_Utils.sample_model_bpinns(
-    #     nets, data, model_loss=model_loss, num_samples=num_samples, num_steps_per_sample=L,
-    #     learning_rate=lr, updatelr=open_update_lr, step2change_lr=step2update_lr, gamma2change_lr=gamma2update_lr,
-    #     burn=burn, tau_priors=tau_priors, tau_likes=tau_likes, device=device, pde=pde, pinns=pinns,
-    #     total_epochs=max_epoch)
-
+    time_begin = time.time()
     if 'PINN' == Rdic['mode2update_para']:
         params_hmc, losses = BayesNN_Utils.update_paras_by_pinn(
             nets, data, model_loss=model_loss, learning_rate=lr, updatelr=open_update_lr, step2change_lr=step2update_lr,
@@ -365,68 +303,53 @@ def solve_bayes(Rdic=None):
     pred_list, log_prob_list = BayesNN_Utils.predict_model_bpinns(
         nets, params_hmc, data_val, model_loss=model_loss, tau_priors=tau_priors, tau_likes=tau_likes, pde=pde)
 
+    time_end = time.time()
+    run_time = time_end - time_begin
+
     Expected = torch.stack(log_prob_list).mean()
     # print("\n Expected validation log probability: {:.3f}".format(torch.stack(log_prob_list).mean()))
     Log_Print2Bayes.print_log_validation(Expected, log_out=log_fileout)
 
     pred_list_u = pred_list[0].cpu().numpy()
-    pred_list_k = pred_list[1].cpu().numpy()
     pred_list_f = pred_list[2].cpu().numpy()
 
     mean2pred_u = np.reshape(pred_list_u.mean(0).squeeze().T, newshape=[-1, 1])
-    mean2pred_k = np.reshape(pred_list_k.mean(0).squeeze().T, newshape=[-1, 1])
     mean2pred_f = np.reshape(pred_list_f.mean(0).squeeze().T, newshape=[-1, 1])
 
     if Rdic['with_gpu'] is True:
         x_val = data_val["x_u"].cpu().detach().numpy()
         u_val = data_val["y_u"].cpu().detach().numpy()
-        k_val = data_val["y_k"].cpu().detach().numpy()
         f_val = data_val["y_f"].cpu().detach().numpy()
 
         x_u = data["x_u"].cpu().detach().numpy()
         y_u = data["y_u"].cpu().detach().numpy()
         x_f = data["x_f"].cpu().detach().numpy()
         y_f = data["y_f"].cpu().detach().numpy()
-        x_k = data["x_k"].cpu().detach().numpy()
-        y_k = data["y_k"].cpu().detach().numpy()
     else:
         x_val = data_val["x_u"].detach().numpy()
         u_val = data_val["y_u"].detach().numpy()
-        k_val = data_val["y_k"].detach().numpy()
         f_val = data_val["y_f"].detach().numpy()
 
         x_u = data["x_u"].detach().numpy()
         y_u = data["y_u"].detach().numpy()
         x_f = data["x_f"].detach().numpy()
         y_f = data["y_f"].detach().numpy()
-        x_k = data["x_k"].detach().numpy()
-        y_k = data["y_k"].detach().numpy()
 
     diff2mean_pred_U = mean2pred_u - u_val
-    diff2mean_pred_K = mean2pred_k - k_val
     diff2mean_pred_F = mean2pred_f - f_val
 
     mse2U = np.mean(np.square(diff2mean_pred_U))
     rel2U = np.sqrt(mse2U/np.mean(np.square(u_val)))
 
-    mse2K = np.mean(np.square(diff2mean_pred_K))
-    rel2K = np.sqrt(mse2K / np.mean(np.square(k_val)))
-
     mse2F = np.mean(np.square(diff2mean_pred_F))
-    rel2F = np.sqrt(mse2F / np.mean(np.square(k_val)))
+    rel2F = np.sqrt(mse2F / np.mean(np.square(f_val)))
 
-    Log_Print2Bayes.print_log_mse_rel(mse2solu=mse2U, rel2solu=rel2U, mse2para=mse2K, rel2para=rel2K, mse2force=mse2F,
-                                      rel2force=rel2F, log_out=log_fileout)
+    print_log_mse_rel(mse2solu=mse2U, rel2solu=rel2U, mse2force=mse2F, rel2force=rel2F, log_out=log_fileout)
 
     saveData.saveTestPoints_Solus2mat(x_val, u_val, mean2pred_u, name2point_data='x',
                                       name2solu_exact='Uexact_'+str(R['act_name2Hidden']),
                                       name2solu_predict='Umean_'+str(R['act_name2Hidden']),
                                       file_name='solu2test', outPath=R['FolderName'])
-
-    saveData.saveTestPoints_Solus2mat(x_val, k_val, mean2pred_k, name2point_data='x',
-                                      name2solu_exact='Kexact_' + str(R['act_name2Hidden']),
-                                      name2solu_predict='Kmean_' + str(R['act_name2Hidden']),
-                                      file_name='para2test', outPath=R['FolderName'])
 
     saveData.saveTestPoints_Solus2mat(x_val, f_val, mean2pred_f, name2point_data='x',
                                       name2solu_exact='Fexact_' + str(R['act_name2Hidden']),
@@ -437,10 +360,6 @@ def solve_bayes(Rdic=None):
                                name2solu_exact='Utrain_' + str(R['act_name2Hidden']),
                                file_name='solu2train', outPath=R['FolderName'])
 
-    saveData.saveTrainData2mat(x_k, y_k, name2point_data='xk_train',
-                               name2solu_exact='Ktrain_' + str(R['act_name2Hidden']),
-                               file_name='para2train', outPath=R['FolderName'])
-
     saveData.saveTrainData2mat(x_f, y_f, name2point_data='xf_train',
                                name2solu_exact='Ftrain_' + str(R['act_name2Hidden']),
                                file_name='force2train', outPath=R['FolderName'])
@@ -448,18 +367,14 @@ def solve_bayes(Rdic=None):
     plot2Bayes.plot2u(x_val=x_val, u_val=u_val, pred_list_u=pred_list_u, x_u=x_u, y_u=y_u, lb=lb, ub=ub,
                       outPath=Rdic['FolderName'], dataType='solu2u')
 
-    plot2Bayes.plot2k(x_val=x_val, k_val=k_val, pred_list_k=pred_list_k, x_k=x_k, y_k=y_k, lb=lb, ub=ub,
-                      outPath=Rdic['FolderName'], dataType='para2k')
-
     plot2Bayes.plot2f(x_val=x_val, f_val=f_val, pred_list_f=pred_list_f, x_f=x_f, y_f=y_f, lb=lb, ub=ub,
                       outPath=Rdic['FolderName'], dataType='force')
 
     save_load_NetModule.save_bayes_net2file_with_keys(
         outPath=R['FolderName'], model2net=net_u, paras2net=params_hmc, name2model='Solu', learning_rate=lr,
         expected_log_prob=Expected, epoch=R['max_epoch'], opt2update_para=Rdic['mode2update_para'])
-    save_load_NetModule.save_bayes_net2file_with_keys(
-        outPath=R['FolderName'], model2net=net_k, paras2net=params_hmc, name2model='Para', learning_rate=lr,
-        expected_log_prob=Expected, epoch=R['max_epoch'], opt2update_para=Rdic['mode2update_para'])
+
+    log_print_run_time(run_time=run_time, log_fileout=log_fileout)
 
 
 if __name__ == "__main__":
@@ -499,7 +414,7 @@ if __name__ == "__main__":
     R['PDE_type'] = 'NoninearPossion'
     R['equa_name'] = 'PDE0'      # The solution is  sin(pi*x)
     R['equa_name'] = 'PDE1'      # The solution is  sin(2*pi*x)
-    # R['equa_name'] = 'PDE2'     # The solution have multi frequency component  sin(2*pi*x)+0.1*sin(10*pi*x)
+    # R['equa_name'] = 'PDE2'     # The solution have multi frequency component  sin(2*pi*x)+0.1*cos(10*pi*x)
     # R['equa_name'] = 'PDE3'     # The solution have multi frequency component  sin(5*pi*x)+0.1*sin(10*pi*x)
     # R['equa_name'] = 'PDE4'       # The solution have multi frequency component  sin(5*pi*x)+0.5*sin(10*pi*x)
     # R['equa_name'] = 'PDE5'     # The solution have multi frequency component  sin(2*pi*x)+0.2*sin(10*pi*x)
@@ -510,7 +425,6 @@ if __name__ == "__main__":
     # R['model'] = 'Net_2Hidden_2FF'
     # R['model'] = 'Net_2Hidden_3FF'
     # R['model'] = 'Net_2Hidden_Fourier'
-    # R['model'] = 'Net_2Hidden_Fourier_sub'
     # R['model'] = 'Net_2Hidden_Multiscale'
     # R['model'] = 'Net_2Hidden_Multiscale_Fourier'
 
@@ -519,12 +433,18 @@ if __name__ == "__main__":
     # R['model'] = 'Net_3Hidden_2FF'
     # R['model'] = 'Net_3Hidden_3FF'
     # R['model'] = 'Net_3Hidden_Fourier'
-    # R['model'] = 'Net_3Hidden_Fourier_sub'
     # R['model'] = 'Net_3Hidden_Multiscale'
     # R['model'] = 'Net_3Hidden_Multiscale_Fourier'
 
     # R['model'] = 'Net_4Hidden'
     # R['model'] = 'Net_4Hidden_Multiscale'
+
+    # R['mode2update_para'] = 'PINN'
+    R['mode2update_para'] = 'Hamilton'
+
+    # R['noise_level'] = 0.05
+    # R['noise_level'] = 0.1
+    R['noise_level'] = 0.2
 
     OUT_DIR_PDE = os.path.join(OUT_DIR, str(R['equa_name']))  # 路径连
     sys.path.append(OUT_DIR_PDE)
@@ -532,7 +452,7 @@ if __name__ == "__main__":
         print('---------------------- OUT_DIR_PDE ---------------------:', OUT_DIR_PDE)
         os.mkdir(OUT_DIR_PDE)
 
-    Module_Time = str(R['model']) + '_' + str(date_time_dir)
+    Module_Time = str(R['model']) + '_' + str(R['mode2update_para']) + '_Noise' + str(R['noise_level']) + '_' + str(date_time_dir)
     FolderName = os.path.join(OUT_DIR_PDE, Module_Time)          # 路径连接
     if not os.path.exists(FolderName):
         print('--------------------- FolderName -----------------:', FolderName)
@@ -559,17 +479,10 @@ if __name__ == "__main__":
         R['Two_hidden_layer'] = [15, 20]
         R['Three_hidden_layer'] = [15, 20, 10]
         R['Four_hidden_layer'] = [15, 20, 20, 20]
-    elif R['model'] == 'Net_2Hidden_Fourier_sub' or R['model'] == 'Net_3Hidden_Fourier_sub':
-        R['Two_hidden_layer'] = [15, 20]
-        R['Three_hidden_layer'] = [15, 20, 10]
-        R['Four_hidden_layer'] = [10, 10, 10, 10]
     else:
         R['Two_hidden_layer'] = [20, 30]
         R['Three_hidden_layer'] = [20, 20, 30]
         R['Four_hidden_layer'] = [10, 20, 20, 20]
-
-    # R['Two_hidden_layer'] = [15, 40]
-    # R['Three_hidden_layer'] = [15, 40, 20]
 
     if R['model'] == 'Net_2Hidden' or R['model'] == 'Net_3Hidden' or R['model'] == 'Net_4Hidden':
         # R['act_name2Input'] = 'tanh'
@@ -591,11 +504,6 @@ if __name__ == "__main__":
         # R['act_name2Hidden'] = 'sinAddcos'
 
     R['act_name2Output'] = 'linear'
-
-    R['mode2update_para'] = 'PINN'
-    # R['mode2update_para'] = 'Hamilton'
-
-    R['noise_level'] = 0.2
 
     R['trainable2ff_layer'] = True
 
