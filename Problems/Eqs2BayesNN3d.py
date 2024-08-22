@@ -3,7 +3,19 @@ import numpy as np
 
 
 def get_infos_3d(equa_name='PDE1'):
-    if str.upper(equa_name) == 'PDE1':
+    if str.upper(equa_name) == 'LINEAR_POISSON0':
+        # Laplace U = f
+        # u(x,y,z)=sin(pi*x)sin(pi*y)sin(pi*z)
+        utrue = lambda x: torch.sin(torch.pi*x[:, 0:1]) * torch.sin(torch.pi*x[:, 1:2]) * torch.sin(torch.pi*x[:, 2:3])
+        fside = lambda x: -3.0*torch.pi*torch.pi*torch.sin(torch.pi*x[:, 0:1]) * torch.sin(torch.pi*x[:, 1:2]) * torch.sin(torch.pi*x[:, 2:3])
+        return utrue, fside
+    elif str.upper(equa_name) == 'LINEAR_POISSON1':
+        # Laplace U = f
+        # u(x,y,z)=sin(pi*x)sin(pi*y)sin(pi*z)
+        utrue = lambda x: 10*torch.sin(torch.pi*x[:, 0:1]) * torch.sin(torch.pi*x[:, 1:2]) * torch.sin(torch.pi*x[:, 2:3])
+        fside = lambda x: -30.0*torch.pi*torch.pi*torch.sin(torch.pi*x[:, 0:1]) * torch.sin(torch.pi*x[:, 1:2]) * torch.sin(torch.pi*x[:, 2:3])
+        return utrue, fside
+    elif str.upper(equa_name) == 'PDE1':
         # 0.01*Laplace U + U(U*U-1.0) = f
         # u(x,y,z)=sin(pi*x)sin(pi*y)sin(pi*z)
         utrue = lambda x: torch.sin(torch.pi*x[:, 0:1]) * torch.sin(torch.pi*x[:, 1:2]) * torch.sin(torch.pi*x[:, 2:3])
