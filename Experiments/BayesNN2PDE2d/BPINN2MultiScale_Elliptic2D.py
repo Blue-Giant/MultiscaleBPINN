@@ -24,6 +24,22 @@ from utilizers import save_load_NetModule
 from utilizers import DNN_tools
 
 
+def calculate_snr(signal=None, noise=None):
+    power2signal = torch.mean(torch.square(signal), dim=0)
+    power2noise = torch.mean(torch.square(noise), dim=0)
+    snr = 10.0*torch.log10(power2signal/power2noise)
+    return snr
+
+
+def print_log_SNR(snr2solu=0.01, snr2fside=0.01, log_out=None):
+    # 将运行结果打印出来
+    print('SNR of solution for training data: %.10f' % snr2solu)
+    print('SNR of force-side for training data: %.10f\n' % snr2fside)
+
+    DNN_tools.log_string('SNR of solution for training data: %.10f' % snr2solu, log_out)
+    DNN_tools.log_string('SNR of force-side for training data: %.10f\n\n' % snr2fside, log_out)
+
+
 def log_print_run_time(run_time=0.01, log_fileout=None):
     print('running time:', run_time)
     DNN_tools.log_string('The running time: %.18f s\n' % run_time, log_fileout)
@@ -117,7 +133,7 @@ def solve_bayes(Rdic=None):
         device = "cpu"
 
     # # hyperparameters
-    # hamiltorch.set_random_seed(123)
+    hamiltorch.set_random_seed(123)
 
     prior_std = 1
     # like_std = 0.1
@@ -134,8 +150,8 @@ def solve_bayes(Rdic=None):
     num_samples = R['sample_num2hamilton']     # the number of samplings for hamilton sampler,Hamilton 抽样次数
     L = 100
 
-    tau_priors = 1 / prior_std**2
-    tau_likes = 1 / like_std**2
+    tau_priors = 1.0 / prior_std**2
+    tau_likes = 1.0 / like_std**2
 
     left_b = -1.0        # the left boundary of interested domain
     right_b = 1.0        # the right boundary of interested domain
@@ -169,7 +185,9 @@ def solve_bayes(Rdic=None):
 
         np.random.shuffle(xy_bd)
         data["x_u"] = torch.from_numpy(xy_bd)
-        data["y_u"] = u_exact(data["x_u"]) + torch.randn_like(u_exact(data["x_u"])) * like_std  # adding bias
+        clean_u = u_exact(data["x_u"])                               # the exact solution without noise on interior points
+        noise2u = torch.randn_like(u_exact(data["x_u"])) * like_std  # the noisy data
+        data["y_u"] = clean_u + noise2u                              # adding bias
 
         N_tr_f_mseh = int(np.sqrt(N_tr_f)) + 1
         x_coord2in = np.reshape(np.linspace(left_b+0.001, right_b, N_tr_f_mseh, endpoint=False, dtype=np.float32),
@@ -179,8 +197,10 @@ def solve_bayes(Rdic=None):
         mesh_x, mesh_y = np.meshgrid(x_coord2in, y_coord2in)
         xy_in = np.concatenate([np.reshape(mesh_x, newshape=[-1, 1]), np.reshape(mesh_y, newshape=[-1, 1])], axis=-1)
         np.random.shuffle(xy_in)
-        data["x_f"] = torch.from_numpy(xy_in)                                       # interior points
-        data["y_f"] = f(data["x_f"]) + torch.randn_like(f(data["x_f"])) * like_std     # adding bias
+        data["x_f"] = torch.from_numpy(xy_in)                    # interior points
+        clean_f = f(data["x_f"])                                 # the exact solution without noise on interior points
+        noise2f = torch.randn_like(f(data["x_f"])) * like_std    # the noisy data
+        data["y_f"] = clean_f + noise2f                          # adding bias
     else:
         y_point2left_right_bd = (top_b - bottom_b) * np.random.random(size=[N_tr_u, 1]) + bottom_b
         x_points2left_bd = np.ones(shape=[N_tr_u, 1]) * left_b
@@ -196,14 +216,22 @@ def solve_bayes(Rdic=None):
         xy_top_b = np.concatenate([x_point2bottom_top_bd, y_points2top_bd], axis=-1)
 
         xy_bd = np.concatenate([xy_left_b, xy_right_b, xy_bottom_b, xy_top_b], axis=0, dtype=np.float32)
-        data["x_u"] = torch.from_numpy(xy_bd)                                       # boundary points for given domain
-        data["y_u"] = u_exact(data["x_u"]) + torch.randn_like(u_exact(data["x_u"])) * like_std  # adding bias
+        data["x_u"] = torch.from_numpy(xy_bd)                        # boundary points for given domain
+        clean_u = u_exact(data["x_u"])                               # the exact solution without noise on interior points
+        noise2u = torch.randn_like(u_exact(data["x_u"])) * like_std  # the noisy data
+        data["y_u"] = clean_u + noise2u                              # adding bias
 
         x_rand2in = (right_b - left_b) * np.random.random(size=[N_tr_f, 1]) + left_b
         y_rand2in = (top_b - bottom_b) * np.random.random(size=[N_tr_f, 1]) + bottom_b
         xy_in = np.concatenate([x_rand2in, y_rand2in], axis=-1, dtype=np.float32)
-        data["x_f"] = torch.from_numpy(xy_in)                                       # interior points
-        data["y_f"] = f(data["x_f"]) + torch.randn_like(f(data["x_f"])) * like_std  # adding bias
+        data["x_f"] = torch.from_numpy(xy_in)                    # interior points
+        clean_f = f(data["x_f"])                                 # the exact force-side without noise on interior points
+        noise2f = torch.randn_like(f(data["x_f"])) * like_std    # the noisy data
+        data["y_f"] = clean_f + noise2f                          # adding bias
+
+    snr2solu = calculate_snr(signal=clean_u, noise=noise2u)
+    snr2force_side = calculate_snr(signal=clean_f, noise=noise2f)
+    print_log_SNR(snr2solu=snr2solu, snr2fside=snr2force_side, log_out=log_fileout)
 
     # exact value of solution, parameter and force-side
     data_val = {}
@@ -300,22 +328,6 @@ def solve_bayes(Rdic=None):
                                                   actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
                                                   type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
                                                   repeat_Highfreq=True, freq=scale2u).to(device)
-    elif 'NET_2HIDDEN_FOURIER_SUB' == str.upper(Rdic['model']):
-        scale2u = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        # scale2u = np.array([1, 2, 3, 4, 5])
-        net_u = DNN2Bayes.Net_2Hidden_FourierSub(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                                 hidden_layer=Rdic['Two_hidden_layer'],
-                                                 actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
-                                                 type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
-                                                 repeat_Highfreq=True, freq=scale2u, num2subnets=len(scale2u)).to(device)
-    elif 'NET_3HIDDEN_FOURIER_SUB' == str.upper(Rdic['model']):
-        scale2u = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        # scale2u = np.array([1, 2, 3, 4, 5])
-        net_u = DNN2Bayes.Net_3Hidden_FourierSub(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                                 hidden_layer=Rdic['Three_hidden_layer'],
-                                                 actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
-                                                 type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
-                                                 repeat_Highfreq=True, freq=scale2u, num2subnets=len(scale2u)).to(device)
     elif 'NET_2HIDDEN_MULTISCALE' == str.upper(Rdic['model']):
         scale2u = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
         net_u = DNN2Bayes.Net_2Hidden_MultiScale(indim=Rdic['indim'], outdim=Rdic['outdim'],
@@ -535,7 +547,6 @@ if __name__ == "__main__":
     # R['model'] = 'Net_2Hidden_2FF'
     # R['model'] = 'Net_2Hidden_3FF'
     # R['model'] = 'Net_2Hidden_Fourier'
-    # R['model'] = 'Net_2Hidden_Fourier_sub'
     # R['model'] = 'Net_2Hidden_Multiscale'
     # R['model'] = 'Net_2Hidden_Multiscale_Fourier'
 
@@ -544,12 +555,19 @@ if __name__ == "__main__":
     # R['model'] = 'Net_3Hidden_2FF'
     # R['model'] = 'Net_3Hidden_3FF'
     # R['model'] = 'Net_3Hidden_Fourier'
-    # R['model'] = 'Net_3Hidden_Fourier_sub'
     # R['model'] = 'Net_3Hidden_Multiscale'
     # R['model'] = 'Net_3Hidden_Multiscale_Fourier'
 
     # R['model'] = 'Net_4Hidden'
     # R['model'] = 'Net_4Hidden_Multiscale'
+
+    R['mode2update_para'] = 'PINN'
+    # R['mode2update_para'] = 'Hamilton'
+
+    R['noise_level'] = 0.05
+    # R['noise_level'] = 0.2
+    # R['noise_level'] = 0.3
+    # R['noise_level'] = 0.5
 
     OUT_DIR_PDE = os.path.join(OUT_DIR, str(R['equa_name']))  # 路径连
     sys.path.append(OUT_DIR_PDE)
@@ -557,7 +575,7 @@ if __name__ == "__main__":
         print('---------------------- OUT_DIR_PDE ---------------------:', OUT_DIR_PDE)
         os.mkdir(OUT_DIR_PDE)
 
-    Module_Time = str(R['model']) + '_' + str(date_time_dir)
+    Module_Time = str(R['model']) + '_' + str(R['mode2update_para']) + '_Noise' + str(R['noise_level']) + '_' + str(date_time_dir)
     FolderName = os.path.join(OUT_DIR_PDE, Module_Time)  # 路径连接
     if not os.path.exists(FolderName):
         print('--------------------- FolderName -----------------:', FolderName)
@@ -588,10 +606,6 @@ if __name__ == "__main__":
         R['Two_hidden_layer'] = [15, 30]
         R['Three_hidden_layer'] = [15, 30, 30]
         R['Four_hidden_layer'] = [15, 30, 30, 30]
-    elif R['model'] == 'Net_2Hidden_Fourier_sub' or R['model'] == 'Net_3Hidden_Fourier_sub':
-        R['Two_hidden_layer'] = [7, 10]
-        R['Three_hidden_layer'] = [7, 10, 10]
-        R['Four_hidden_layer'] = [7, 10, 10, 10]
     else:
         R['Two_hidden_layer'] = [30, 30]
         R['Three_hidden_layer'] = [30, 30, 30]
@@ -617,14 +631,6 @@ if __name__ == "__main__":
         # R['act_name2Hidden'] = 'sinAddcos'
 
     R['act_name2Output'] = 'linear'
-
-    R['mode2update_para'] = 'PINN'
-    # R['mode2update_para'] = 'Hamilton'
-
-    R['noise_level'] = 0.05
-    # R['noise_level'] = 0.2
-    # R['noise_level'] = 0.3
-    # R['noise_level'] = 0.5
 
     R['trainable2ff_layer'] = False
 

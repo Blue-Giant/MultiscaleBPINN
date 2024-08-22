@@ -135,68 +135,9 @@ def solve_bayes(Rdic=None):
     bottom_b = -1.0      # the bottom boundary of interested domain
     top_b = 1.0          # the top boundary of interested domain
 
-    N_tr_u = 200     # the number of sampled points for dealing with solution, i.e., boundary
-    N_tr_f = 2500    # the number of sampled points for dealing with force-side, i.e., governed equation for interior
     N_val = 4900     # the number of sampled points for obtaining real solution, parameter and force-side
 
     u_exact, f = Eqs2BayesNN2d.get_infos_2d(equa_name=Rdic['equa_name'])   # get the infos for PDE problem
-
-    data = {}
-    if 'mesh_grid' == str.lower(Rdic['opt2sampling']):
-        y_point2left_right_bd = np.reshape(
-            np.linspace(bottom_b, top_b, N_tr_u, endpoint=True, dtype=np.float32), newshape=(-1, 1))
-        x_points2left_bd = np.ones(shape=[N_tr_u, 1]) * left_b
-        x_points2right_bd = np.ones(shape=[N_tr_u, 1]) * right_b
-        xy_left_b = np.concatenate([x_points2left_bd, y_point2left_right_bd], axis=-1)
-        xy_right_b = np.concatenate([x_points2right_bd, y_point2left_right_bd], axis=-1)
-
-        x_point2bottom_top_bd = np.reshape(np.linspace(left_b, right_b, N_tr_u, endpoint=True, dtype=np.float32),
-                                           newshape=(-1, 1))
-        y_points2bottom_bd = np.ones(shape=[N_tr_u, 1]) * bottom_b
-        y_points2top_bd = np.ones(shape=[N_tr_u, 1]) * top_b
-
-        xy_bottom_b = np.concatenate([x_point2bottom_top_bd, y_points2bottom_bd], axis=-1)
-        xy_top_b = np.concatenate([x_point2bottom_top_bd, y_points2top_bd], axis=-1)
-
-        xy_bd = np.concatenate([xy_left_b, xy_right_b, xy_bottom_b, xy_top_b], axis=0, dtype=np.float32)
-
-        np.random.shuffle(xy_bd)
-        data["x_u"] = torch.from_numpy(xy_bd)
-        data["y_u"] = u_exact(data["x_u"]) + torch.randn_like(u_exact(data["x_u"])) * like_std  # adding bias
-
-        N_tr_f_mseh = int(np.sqrt(N_tr_f)) + 1
-        x_coord2in = np.reshape(np.linspace(left_b+0.001, right_b, N_tr_f_mseh, endpoint=False, dtype=np.float32),
-                                newshape=(-1, 1))
-        y_coord2in = np.reshape(np.linspace(bottom_b+0.001, top_b, N_tr_f_mseh, endpoint=False, dtype=np.float32),
-                                newshape=(-1, 1))
-        mesh_x, mesh_y = np.meshgrid(x_coord2in, y_coord2in)
-        xy_in = np.concatenate([np.reshape(mesh_x, newshape=[-1, 1]), np.reshape(mesh_y, newshape=[-1, 1])], axis=-1)
-        np.random.shuffle(xy_in)
-        data["x_f"] = torch.from_numpy(xy_in)                                       # interior points
-        data["y_f"] = f(data["x_f"]) + torch.randn_like(f(data["x_f"])) * like_std     # adding bias
-    else:
-        y_point2left_right_bd = (top_b - bottom_b) * np.random.random(size=[N_tr_u, 1]) + bottom_b
-        x_points2left_bd = np.ones(shape=[N_tr_u, 1]) * left_b
-        x_points2right_bd = np.ones(shape=[N_tr_u, 1]) * right_b
-        xy_left_b = np.concatenate([x_points2left_bd, y_point2left_right_bd], axis=-1)
-        xy_right_b = np.concatenate([x_points2right_bd, y_point2left_right_bd], axis=-1)
-
-        x_point2bottom_top_bd = (right_b - left_b) * np.random.random(size=[N_tr_u, 1]) + left_b
-        y_points2bottom_bd = np.ones(shape=[N_tr_u, 1]) * bottom_b
-        y_points2top_bd = np.ones(shape=[N_tr_u, 1]) * top_b
-
-        xy_bottom_b = np.concatenate([x_point2bottom_top_bd, y_points2bottom_bd], axis=-1)
-        xy_top_b = np.concatenate([x_point2bottom_top_bd, y_points2top_bd], axis=-1)
-
-        xy_bd = np.concatenate([xy_left_b, xy_right_b, xy_bottom_b, xy_top_b], axis=0, dtype=np.float32)
-        data["x_u"] = torch.from_numpy(xy_bd)                                       # boundary points for given domain
-        data["y_u"] = u_exact(data["x_u"]) + torch.randn_like(u_exact(data["x_u"])) * like_std  # adding bias
-
-        x_rand2in = (right_b - left_b) * np.random.random(size=[N_tr_f, 1]) + left_b
-        y_rand2in = (top_b - bottom_b) * np.random.random(size=[N_tr_f, 1]) + bottom_b
-        xy_in = np.concatenate([x_rand2in, y_rand2in], axis=-1, dtype=np.float32)
-        data["x_f"] = torch.from_numpy(xy_in)                                       # interior points
-        data["y_f"] = f(data["x_f"]) + torch.randn_like(f(data["x_f"])) * like_std  # adding bias
 
     # exact value of solution, parameter and force-side
     data_val = {}
@@ -238,8 +179,6 @@ def solve_bayes(Rdic=None):
         data_val["x_f"] = torch_val_xy
         data_val["y_f"] = f(data_val["x_f"])
 
-    for d in data:
-        data[d] = data[d].to(device)
     for d in data_val:
         data_val[d] = data_val[d].to(device)
 
@@ -293,22 +232,6 @@ def solve_bayes(Rdic=None):
                                                   actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
                                                   type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
                                                   repeat_Highfreq=True, freq=scale2u).to(device)
-    elif 'NET_2HIDDEN_FOURIER_SUB' == str.upper(Rdic['model']):
-        scale2u = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        # scale2u = np.array([1, 2, 3, 4, 5])
-        net_u = DNN2Bayes.Net_2Hidden_FourierSub(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                                 hidden_layer=Rdic['Two_hidden_layer'],
-                                                 actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
-                                                 type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
-                                                 repeat_Highfreq=True, freq=scale2u, num2subnets=len(scale2u)).to(device)
-    elif 'NET_3HIDDEN_FOURIER_SUB' == str.upper(Rdic['model']):
-        scale2u = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        # scale2u = np.array([1, 2, 3, 4, 5])
-        net_u = DNN2Bayes.Net_3Hidden_FourierSub(indim=Rdic['indim'], outdim=Rdic['outdim'],
-                                                 hidden_layer=Rdic['Three_hidden_layer'],
-                                                 actName2in=Rdic['act_name2Input'], actName=Rdic['act_name2Hidden'],
-                                                 type2float='float32', to_gpu=Rdic['with_gpu'], gpu_no=0,
-                                                 repeat_Highfreq=True, freq=scale2u, num2subnets=len(scale2u)).to(device)
     elif 'NET_2HIDDEN_MULTISCALE' == str.upper(Rdic['model']):
         scale2u = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
         net_u = DNN2Bayes.Net_2Hidden_MultiScale(indim=Rdic['indim'], outdim=Rdic['outdim'],
@@ -440,7 +363,6 @@ if __name__ == "__main__":
     # R['model'] = 'Net_2Hidden_2FF'
     # R['model'] = 'Net_2Hidden_3FF'
     # R['model'] = 'Net_2Hidden_Fourier'
-    # R['model'] = 'Net_2Hidden_Fourier_sub'
     # R['model'] = 'Net_2Hidden_Multiscale'
     # R['model'] = 'Net_2Hidden_Multiscale_Fourier'
 
@@ -449,12 +371,18 @@ if __name__ == "__main__":
     # R['model'] = 'Net_3Hidden_2FF'
     # R['model'] = 'Net_3Hidden_3FF'
     # R['model'] = 'Net_3Hidden_Fourier'
-    # R['model'] = 'Net_3Hidden_Fourier_sub'
     # R['model'] = 'Net_3Hidden_Multiscale'
     # R['model'] = 'Net_3Hidden_Multiscale_Fourier'
 
     # R['model'] = 'Net_4Hidden'
     # R['model'] = 'Net_4Hidden_Multiscale'
+
+    R['mode2update_para'] = 'PINN'
+    # R['mode2update_para'] = 'Hamilton'
+
+    R['noise_level'] = 0.2
+    # R['noise_level'] = 0.3
+    # R['noise_level'] = 0.5
 
     OUT_DIR_PDE = os.path.join(OUT_DIR, str(R['equa_name']))  # 路径连
     sys.path.append(OUT_DIR_PDE)
@@ -462,7 +390,7 @@ if __name__ == "__main__":
         print('---------------------- OUT_DIR_PDE ---------------------:', OUT_DIR_PDE)
         os.mkdir(OUT_DIR_PDE)
 
-    Module_Time = str(R['model']) + '_' + str(date_time_dir)
+    Module_Time = str(R['model']) + '_' + str(R['mode2update_para']) + '_Noise' + str(R['noise_level']) + '_' + str(date_time_dir)
     FolderName = os.path.join(OUT_DIR_PDE, Module_Time)  # 路径连接
     if not os.path.exists(FolderName):
         print('--------------------- FolderName -----------------:', FolderName)
@@ -518,13 +446,6 @@ if __name__ == "__main__":
         # R['act_name2Hidden'] = 'sinAddcos'
 
     R['act_name2Output'] = 'linear'
-
-    R['mode2update_para'] = 'PINN'
-    # R['mode2update_para'] = 'Hamilton'
-
-    R['noise_level'] = 0.2
-    # R['noise_level'] = 0.3
-    # R['noise_level'] = 0.5
 
     R['trainable2ff_layer'] = True
 
