@@ -125,6 +125,15 @@ def save_2testSolus2mat(exact_solution, dnn_solution, actName=None, actName1=Non
 
 
 # 合并保存数据
+def saveMultiTestPoints_Solus2mat(points, solu_exact, solu_predict, name2point_data=None, name2solu_exact='exact',
+                                  name2solu_predict='predict', file_name='solu', outPath=None):
+    outFile2data = '%s/%s.mat' % (outPath, file_name)
+    key2mat_1 = '%s' % (name2point_data)
+    key2mat_2 = '%s' % (name2solu_exact)
+    key2mat_3 = '%s'%(name2solu_predict)
+    scio.savemat(outFile2data, {key2mat_1: points, key2mat_2: solu_exact, key2mat_3: solu_predict})
+
+# 合并保存数据
 def saveTestPoints_Solus2mat(points, solu_exact, solu_predict, name2point_data=None, name2solu_exact='exact',
                              name2solu_predict='predict', file_name='solu', outPath=None):
     outFile2data = '%s/%s.mat' % (outPath, file_name)
@@ -183,12 +192,6 @@ def save_testLoss2mat_1act_Func(loss_it, loss_bd, loss_bd2, loss, actName=None, 
 
 
 def save_testMSE_REL2mat(Mse_data, Rel_data, actName=None, outPath=None):
-    # if actName == 's2ReLU':
-    #     outFile2data = '%s/test_Err2s2ReLU.mat' % (outPath)
-    # if actName == 'sReLU':
-    #     outFile2data = '%s/test_Err2sReLU.mat' % (outPath)
-    # if actName == 'ReLU':
-    #     outFile2data = '%s/test_Err2ReLU.mat' % (outPath)
     outFile2data = '%s/test_Err2%s.mat' % (outPath, actName)
     key2mat_1 = 'mse'
     key2mat_2 = 'rel'
